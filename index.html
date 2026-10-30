@@ -623,6 +623,7 @@ dialog.wide{width:min(1120px,calc(100vw - 24px))}
   .tag.fc,.job.miss .s{color:var(--rosso)}
 }
 
+.mtodoall{display:none}
 /* ===== telefono ===== */
 @media screen and (max-width: 760px){
   body{font-size:15px}
@@ -650,6 +651,12 @@ dialog.wide{width:min(1120px,calc(100vw - 24px))}
   .mdays button.tod{border-color:var(--rb)}
   .mdays button[aria-selected="true"]{background:var(--rb);border-color:var(--rb);color:#EAF6FD}
   .mdays button[aria-selected="true"] b{color:#fff}
+  .mdays{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .mdays button{min-width:44px}
+  .mdays button.mdtodo{flex:1.7;min-width:78px;font-size:11.5px}
+  .mdays button.mdtodo b{font-size:12.5px;line-height:1.2}
+  .mtodoall{display:inline-flex;padding:6px 10px;font-size:13px}
+  .sub{flex-wrap:wrap}
   .mtitle{font:700 20px var(--font);color:var(--rb-dark);margin:6px 2px 8px}
   .mtitle span{font:700 12px var(--font);color:#fff;background:var(--rb);border-radius:6px;padding:2px 7px;vertical-align:3px}
   .mgrid{display:flex;flex-direction:column;gap:12px}
@@ -1076,11 +1083,18 @@ function blHTML(b, ro){
 const MOBQ = window.matchMedia("(max-width: 760px)");
 function mobileBodyHTML(data, ND, todayIdx){
   const rep = REPARTI[UI.rep], m = fromKey(UI.wk);
-  if (UI.mday == null || UI.mday >= ND) UI.mday = todayIdx >= 0 && todayIdx < ND ? todayIdx : 0;
-  const d = UI.mday, dt = addDays(m, d);
+  if (UI.mday == null || (UI.mday !== "todo" && UI.mday >= ND)) UI.mday = todayIdx >= 0 && todayIdx < ND ? todayIdx : 0;
+  const d = UI.mday, isTodo = d === "todo";
   const GG = ["Lun","Mar","Mer","Gio","Ven","Sab"];
-  let h = `<div class="mdays" role="tablist">${Array.from({ length:ND }, (_, i) => { const x = addDays(m, i); return `<button role="tab" data-mday="${i}" aria-selected="${i === d}" class="${i === todayIdx ? "tod" : ""}"><b>${GG[i]}</b>${x.getDate()}</button>`; }).join("")}</div>
-  <h2 class="mtitle">${GIORNI[d]} ${dt.getDate()} ${MES[dt.getMonth()]}${d === todayIdx ? ` <span>oggi</span>` : ""}</h2>
+  const lbl = ordersOn() ? "Ordini" : "Da produrre";
+  let h = `<div class="mdays" role="tablist">${Array.from({ length:ND }, (_, i) => { const x = addDays(m, i); return `<button role="tab" data-mday="${i}" aria-selected="${i === d}" class="${i === todayIdx ? "tod" : ""}"><b>${GG[i]}</b>${x.getDate()}</button>`; }).join("")}<button role="tab" data-mday="todo" aria-selected="${isTodo}" class="mdtodo"><b>${lbl}</b>per linea</button></div>`;
+  if (isTodo){
+    h += `<h2 class="mtitle">${ordersOn() ? "Ordini da lavorare" : "Da produrre"} per linea</h2><div id="grid" class="mgrid">`;
+    rep.linee.filter(l => !isActLine(l.id)).forEach(l => { h += `<section class="mline"><div class="mlh"><b>${esc(l.nome)}</b><span>${esc(l.mac)}</span></div><div class="mtodo">${todoCellHTML(l.id)}</div></section>`; });
+    return h + `</div>`;
+  }
+  const dt = addDays(m, d);
+  h += `<h2 class="mtitle">${GIORNI[d]} ${dt.getDate()} ${MES[dt.getMonth()]}${d === todayIdx ? ` <span>oggi</span>` : ""}</h2>
   <div id="grid" class="mgrid">`;
   rep.linee.forEach(l => {
     if (l.gapBefore && l.legendAct) h += `<div class="mleg">${actLegendHTML()}</div>`;
@@ -1089,13 +1103,13 @@ function mobileBodyHTML(data, ND, todayIdx){
     h += `<section class="mline"><div class="mlh"><b>${esc(l.nome)}</b><span>${esc(l.mac)}</span></div>`;
     if (sp.length) h += `<div class="mspans">${sp.map((e, i) => spanBarHTML(e, UI.rep, l.id, i)).join("")}</div>`;
     h += groups.length ? `<div class="mcards">${groups.map(g => groupCardHTML(g, l.id, d)).join("")}</div>` : `<p class="mempty">Nessuna lavorazione</p>`;
-    if (!isActLine(l.id)) h += `<div class="mtodo">${todoCellHTML(l.id)}</div>`;
     h += `</section>`;
   });
   return h + `</div>`;
 }
 function bindMobile(){
-  document.querySelectorAll("[data-mday]").forEach(b => b.onclick = () => { UI.mday = +b.dataset.mday; render(); window.scrollTo(0, 0); });
+  document.querySelectorAll("[data-mday]").forEach(b => b.onclick = () => { UI.mday = b.dataset.mday === "todo" ? "todo" : +b.dataset.mday; render(); window.scrollTo(0, 0); });
+  const mt = document.getElementById("mtodoall"); if (mt) mt.onclick = () => openTodo(null, null);
   const g = document.getElementById("grid"); if (!g) return;
   let x0 = null, y0 = null;
   g.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive:true });
@@ -1103,9 +1117,9 @@ function bindMobile(){
     if (x0 == null) return;
     const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
     if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
-    const ND = document.querySelectorAll("[data-mday]").length;
-    const nd = UI.mday + (dx < 0 ? 1 : -1);
-    if (nd >= 0 && nd < ND){ UI.mday = nd; render(); window.scrollTo(0, 0); }
+    const tabs = [...document.querySelectorAll("[data-mday]")].map(b => b.dataset.mday === "todo" ? "todo" : +b.dataset.mday);
+    const k = tabs.indexOf(UI.mday) + (dx < 0 ? 1 : -1);
+    if (k >= 0 && k < tabs.length){ UI.mday = tabs[k]; render(); window.scrollTo(0, 0); }
   }, { passive:true });
 }
 MOBQ.addEventListener("change", () => { UI.mday = null; render(); });
@@ -1164,7 +1178,7 @@ function render(){
       <span id="sync" class="sync syncr"></span>
     </div>
     <div class="sub">
-      ${status}${revOpts}
+      ${status}${revOpts}<button class="ghost mtodoall" id="mtodoall">Da produrre${S.backlog.length ? " (" + S.backlog.length + ")" : ""}</button>
       <span class="spacer"></span>
       <div class="actions">
         <button class="ghost" id="todoall">Da produrre${S.backlog.length ? " (" + S.backlog.length + ")" : ""}</button>
