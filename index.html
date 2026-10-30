@@ -622,6 +622,58 @@ dialog.wide{width:min(1120px,calc(100vw - 24px))}
   .status.dirty{background:#FDECD6;color:#9A5B00}
   .tag.fc,.job.miss .s{color:var(--rosso)}
 }
+
+/* ===== telefono ===== */
+@media screen and (max-width: 760px){
+  body{font-size:15px}
+  .top .bar{flex-wrap:wrap;gap:8px;padding:8px 10px}
+  .brand .logo{height:26px}
+  .brand .bt{font-size:13px;padding-left:8px}
+  .brand .pmod{display:none}
+  .tabs{order:3;flex:1 1 100%;flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch}
+  .tabs button{flex:0 0 auto;padding:8px 12px;font-size:14px}
+  .week{margin-left:auto;gap:4px}
+  .week .n{font-size:18px}
+  .week .d{font-size:11.5px}
+  #oggi{display:none!important}
+  .syncr{order:2;font-size:11px;margin:0}
+  .sub{padding:6px 10px;gap:6px}
+  .sub .actions,.sub .spacer{display:none!important}
+  .sub label{font-size:13px}
+  .top{position:static}
+  .banner,dialog .banner{display:none!important}
+  .famleg,.qhelp,.legend{display:none}
+  .wrap{padding:0 10px 24px}
+  .mdays{position:sticky;top:0;z-index:15;display:flex;gap:6px;background:var(--bg,#F4F9FC);padding:8px 0;margin:0 -2px}
+  .mdays button{flex:1;display:flex;flex-direction:column;align-items:center;border:1px solid var(--line);background:#fff;border-radius:10px;padding:6px 0;font:500 13px var(--font);color:var(--muted)}
+  .mdays button b{font:700 14px var(--font);color:var(--ink)}
+  .mdays button.tod{border-color:var(--rb)}
+  .mdays button[aria-selected="true"]{background:var(--rb);border-color:var(--rb);color:#EAF6FD}
+  .mdays button[aria-selected="true"] b{color:#fff}
+  .mtitle{font:700 20px var(--font);color:var(--rb-dark);margin:6px 2px 8px}
+  .mtitle span{font:700 12px var(--font);color:#fff;background:var(--rb);border-radius:6px;padding:2px 7px;vertical-align:3px}
+  .mgrid{display:flex;flex-direction:column;gap:12px}
+  .mline{background:#fff;border:1px solid var(--line);border-radius:12px;padding:10px 10px 12px}
+  .mlh{display:flex;align-items:baseline;gap:8px;margin-bottom:8px;border-bottom:2px solid var(--rb-light);padding-bottom:6px}
+  .mlh b{font:700 17px var(--font);color:var(--ink)}
+  .mlh span{font-size:12.5px;color:var(--muted)}
+  .mcards{display:flex;flex-direction:column;gap:8px}
+  .mcards .job{width:100%;margin:0}
+  .mspans{display:flex;flex-direction:column;gap:6px;margin-bottom:8px}
+  .mspans .spanbar{width:100%;flex-wrap:wrap;row-gap:2px}
+  .mempty{margin:2px 0;color:var(--muted);font-size:13.5px}
+  .mtodo{margin-top:10px}
+  .mtodo .todo{width:100%}
+  .mleg{font-size:12px;color:var(--muted);padding:2px 4px}
+  .gnote{margin-top:14px}
+  dialog,dialog.wide{width:calc(100vw - 16px)!important;max-width:none!important;max-height:calc(100vh - 24px)}
+  dialog.nm{inset:8px}
+  .ogrid{grid-template-columns:1fr}
+  .tfilters,.tsortw{flex-wrap:wrap}
+  .fsctl,#tprint{display:none!important}
+  .trow{grid-template-columns:10px 1fr!important}
+  .trow > :nth-child(n+3){grid-column:2}
+}
 </style>
 </head>
 <body>
@@ -917,7 +969,7 @@ function viewData(){
 }
 const lastRev = w => w && w.revs.length ? w.revs[w.revs.length-1] : null;
 const isPast = () => fromKey(UI.wk) < monday(TODAY);
-const readOnly = () => LOADING || UI.view !== "draft" || (isPast() && !UI.unlocked[UI.wk] && !UI.editMode);
+const readOnly = () => LOADING || UI.mobile || UI.view !== "draft" || (isPast() && !UI.unlocked[UI.wk] && !UI.editMode);
 function dirty(k){ const w = S.weeks[k]; if (!w) return false; const r = lastRev(w); return !r ? hasAny(w.draft) : diff(r.data, w.draft).length > 0; }
 const spansOf = (d, rep, line) => (d && d.spans && d.spans[rep] && d.spans[rep][line]) || [];
 function spanList(rep, line, wk){ const w = weekObj(wk || UI.wk, true); if (!w.draft.spans[rep]) w.draft.spans[rep] = {}; if (!w.draft.spans[rep][line]) w.draft.spans[rep][line] = []; return w.draft.spans[rep][line]; }
@@ -1020,8 +1072,47 @@ function blHTML(b, ro){
     ${(b.entry.qty||b.rif) ? `<div class="q">${esc(b.entry.qty)}${b.entry.qty&&b.rif?" ":""}${b.rif?`<i>${esc(b.rif)}</i>`:""}</div>` : ""}
   </button>`;
 }
+/* ---------- vista per telefono: un giorno alla volta, solo lettura ---------- */
+const MOBQ = window.matchMedia("(max-width: 760px)");
+function mobileBodyHTML(data, ND, todayIdx){
+  const rep = REPARTI[UI.rep], m = fromKey(UI.wk);
+  if (UI.mday == null || UI.mday >= ND) UI.mday = todayIdx >= 0 && todayIdx < ND ? todayIdx : 0;
+  const d = UI.mday, dt = addDays(m, d);
+  const GG = ["Lun","Mar","Mer","Gio","Ven","Sab"];
+  let h = `<div class="mdays" role="tablist">${Array.from({ length:ND }, (_, i) => { const x = addDays(m, i); return `<button role="tab" data-mday="${i}" aria-selected="${i === d}" class="${i === todayIdx ? "tod" : ""}"><b>${GG[i]}</b>${x.getDate()}</button>`; }).join("")}</div>
+  <h2 class="mtitle">${GIORNI[d]} ${dt.getDate()} ${MES[dt.getMonth()]}${d === todayIdx ? ` <span>oggi</span>` : ""}</h2>
+  <div id="grid" class="mgrid">`;
+  rep.linee.forEach(l => {
+    if (l.gapBefore && l.legendAct) h += `<div class="mleg">${actLegendHTML()}</div>`;
+    const sp = spansOf(data, UI.rep, l.id);
+    const groups = groupDay(data[UI.rep]?.[l.id]?.[d] || []);
+    h += `<section class="mline"><div class="mlh"><b>${esc(l.nome)}</b><span>${esc(l.mac)}</span></div>`;
+    if (sp.length) h += `<div class="mspans">${sp.map((e, i) => spanBarHTML(e, UI.rep, l.id, i)).join("")}</div>`;
+    h += groups.length ? `<div class="mcards">${groups.map(g => groupCardHTML(g, l.id, d)).join("")}</div>` : `<p class="mempty">Nessuna lavorazione</p>`;
+    if (!isActLine(l.id)) h += `<div class="mtodo">${todoCellHTML(l.id)}</div>`;
+    h += `</section>`;
+  });
+  return h + `</div>`;
+}
+function bindMobile(){
+  document.querySelectorAll("[data-mday]").forEach(b => b.onclick = () => { UI.mday = +b.dataset.mday; render(); window.scrollTo(0, 0); });
+  const g = document.getElementById("grid"); if (!g) return;
+  let x0 = null, y0 = null;
+  g.addEventListener("touchstart", e => { x0 = e.touches[0].clientX; y0 = e.touches[0].clientY; }, { passive:true });
+  g.addEventListener("touchend", e => {
+    if (x0 == null) return;
+    const dx = e.changedTouches[0].clientX - x0, dy = e.changedTouches[0].clientY - y0; x0 = null;
+    if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+    const ND = document.querySelectorAll("[data-mday]").length;
+    const nd = UI.mday + (dx < 0 ? 1 : -1);
+    if (nd >= 0 && nd < ND){ UI.mday = nd; render(); window.scrollTo(0, 0); }
+  }, { passive:true });
+}
+MOBQ.addEventListener("change", () => { UI.mday = null; render(); });
 function render(){
   const app = document.getElementById("app");
+  UI.mobile = MOBQ.matches;
+  if (UI.mobile && UI.editMode){ UI.editMode = false; UI.viewAuto = true; UI.qe = null; }
   if (UI.viewAuto){ const lr0 = lastRev(S.weeks[UI.wk]); UI.view = UI.editMode ? "draft" : lr0 ? lr0.n : "draft"; }
   const ae = document.activeElement, keepNote = ae && ae.id === "gnote" ? { s:ae.selectionStart, e:ae.selectionEnd, v:ae.value } : null;
   const rep = REPARTI[UI.rep], m = fromKey(UI.wk), w = S.weeks[UI.wk], lr = lastRev(w);
@@ -1091,11 +1182,12 @@ function render(){
   <main class="wrap">
     ${ro ? "" : `<div class="qhelp"><span><b>Inserimento rapido</b>: fai doppio clic sulla cella, oppure selezionala e inizia a scrivere (con <b>+ Inserisci</b> scegli invece il prodotto con il mouse). Ti chiede un dato alla volta: famiglia <kbd>Tab</kbd> diametro <kbd>Tab</kbd> PN <kbd>Tab</kbd> lunghezza <kbd>Tab</kbd> quantità <kbd>Tab</kbd> note <kbd>Tab</kbd> salva e passa al giorno dopo.</span><span><kbd>Invio</kbd> salva subito e resta nella cella per un altro formato <kbd>Maiusc+Tab</kbd> torna al dato precedente <kbd>Esc</kbd> annulla <kbd>Canc</kbd> toglie l’ultima voce <kbd>Ctrl+Z</kbd> annulla l’ultima modifica</span><span><b>Trascina</b> le nuvolette con il mouse per spostarle o cambiarne l’ordine. Tenendo premuto <kbd>Maiusc</kbd> e lasciandola sopra un’altra le inverti, con <kbd>Ctrl</kbd> la copi.</span></div>`}
     <div class="famleg"><b>${esc(rep.nome)}</b> ${esc(rep.legenda).replace(/Cod\. (\d+)/g, "Cod. <b>$1</b>")}</div>
-    <div class="scroller">${ro ? viewTable : `<div class="grid" id="grid" style="grid-template-columns:168px repeat(${ND},minmax(158px,1fr)) minmax(210px,1fr);min-width:${168+ND*158+210}px">${grid}</div>`}</div>
+    ${UI.mobile ? mobileBodyHTML(data, ND, todayIdx) : `<div class="scroller">${ro ? viewTable : `<div class="grid" id="grid" style="grid-template-columns:168px repeat(${ND},minmax(158px,1fr)) minmax(210px,1fr);min-width:${168+ND*158+210}px">${grid}</div>`}</div>`}
     <div class="gnote"><label for="gnote"><b>Note generali</b> valgono per tutti i reparti</label>${ro ? `<div class="gnv">${data.note ? esc(data.note) : `<span class="hint">Nessuna nota.</span>`}</div>` : `<textarea id="gnote" placeholder="Indicazioni per i reparti, per esempio fermi macchina, manutenzioni, priorità della settimana">${esc(data.note || "")}</textarea>`}</div>
     <div class="legend">${[...usedFam].map(x => { const [c,n,t] = x.split("|"); return `<span><i style="--c:${c}"></i>${n?`<b>${n}</b>`:""}${esc(t)}</span>`; }).join("")}</div>
   </main>`;
   bind();
+  if (UI.mobile) bindMobile();
   afterRender();
   setSync();
   if (keepNote){ const g = document.getElementById("gnote"); if (g){ g.value = keepNote.v; g.focus({ preventScroll:true }); g.setSelectionRange(keepNote.s, keepNote.e); } }
