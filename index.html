@@ -440,7 +440,7 @@ dialog.wide{width:min(1120px,calc(100vw - 24px))}
 #print .pgd{font:700 13pt/1.1 var(--cond)}
 #print .pgp{font:700 10pt var(--cond)}
 #print .pgc{font:600 9pt var(--cond)}
-#print .pgf{font-size:7.5pt}
+#print .pgf{font-size:7.5pt;font-weight:600}
 #print .pgi{font-size:8.5pt;border-top:1px dotted #777;padding-top:1px;margin-top:1px}
 #print .pgi:first-of-type{border-top:0}
 #print .pg .fn{min-width:16px;height:15px;font-size:9pt;margin-right:3px;border-width:1.2px;vertical-align:2px}
@@ -516,7 +516,7 @@ dialog.wide{width:min(1120px,calc(100vw - 24px))}
   .pgd{font:700 13pt/1.1 var(--cond)}
   .pgp{font:700 10pt var(--cond)}
   .pgc{font:600 9pt var(--cond)}
-  .pgf{font-size:7.5pt}
+  .pgf{font-size:7.5pt;font-weight:600}
   .pgi{font-size:8.5pt;border-top:1px dotted #777;padding-top:1px;margin-top:1px}
   .pgi:first-of-type{border-top:0}
   .pparth{font:700 13pt var(--cond);margin:8px 0 2px;padding:2px 6px;border-left:4px solid #000}
@@ -1445,7 +1445,7 @@ function printMerged(r){
   const body = sameCodes
     ? g0.items.map(it).join("") + r.parts.slice(1).flatMap(p => p.g.items.filter(e => e.qty || e.note).map(e => `<div class="pgi"><b>${GG[p.day].toLowerCase()}:</b> <i>${esc([e.qty, e.note].filter(Boolean).join(", "))}</i></div>`)).join("")
     : `<div class="pgdays">${r.parts.map(p => `<div><b>${GG[p.day]}</b>${p.g.items.map(it).join("")}</div>`).join("")}</div>`;
-  return `<div class="pg pgm"><div class="pgh">${head}${g0.fluid ? ` <b class="pgfl">FLUID</b>` : ""}</div>${ri && !fam && !isCorr(ri) ? `<div class="pgf">${esc(famLabel(ri[2]))}</div>` : ""}${body}</div>`;
+  return `<div class="pg pgm"><div class="pgh">${head}${g0.fluid ? ` <b class="pgfl">FLUID</b>` : ""}</div>${ri && !isCorr(ri) ? `<div class="pgf">${esc(g0.fluid ? "Fluid" : famLabel(ri[2]))}</div>` : ""}${body}</div>`;
 }
 function viewTableHTML(data, ND, todayIdx){
   const rep = REPARTI[UI.rep], m = fromKey(UI.wk);
@@ -2753,7 +2753,7 @@ function printGroup(g){
   if (g.nota) return `<div class="pg pgn"><i>${esc(g.items[0].text)}</i>${g.items[0].note ? `<br><i>${esc(g.items[0].note)}</i>` : ""}</div>`;
   const r = g.r, fam = r && famNum(r[2]);
   const head = r ? `${fam ? `<span class="fn">${fam}</span>` : ""}<b class="pgd">${r[3] ? "Ø" + esc(fmtNum(r[3])) : "–"}</b>${r[4] ? ` <b class="pgp">${esc(clsPrefix(r[2]) + fmtNum(r[4]))}</b>` : ""}${r[6] && r[6] !== "BANDA ROSSA" ? ` <span class="${isCorr(r) ? "pgd" : "pgc"}">${esc(r[6].toLowerCase())}</span>` : ""}` : "";
-  return `<div class="pg"><div class="pgh">${head}${g.fluid ? ` <b class="pgfl">FLUID</b>` : ""}</div>${r && !fam && !isCorr(r) ? `<div class="pgf">${esc(famLabel(r[2]))}</div>` : ""}${g.items.map(e => { const ri = rowOf(e);
+  return `<div class="pg"><div class="pgh">${head}${g.fluid ? ` <b class="pgfl">FLUID</b>` : ""}</div>${r && !isCorr(r) ? `<div class="pgf">${esc(g.fluid ? "Fluid" : famLabel(r[2]))}</div>` : ""}${g.items.map(e => { const ri = rowOf(e);
     return `<div class="pgi"><b>${ri ? esc(formatLenCell(ri) || "") : ""}</b> ${esc(codeTxt(e, "______"))}${e.cont ? " idem" : ""}${e.custom ? " (fuori catalogo)" : ""}${e.lav ? `<br><b>${esc(e.lav)}</b>` : ""}${e.qty || e.note ? `<br><i>${esc([e.qty, e.note].filter(Boolean).join(", "))}</i>` : ""}</div>`; }).join("")}</div>`;
 }
 function buildPrint(reps){
