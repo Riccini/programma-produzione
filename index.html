@@ -1379,9 +1379,10 @@ function groupDay(list){
   list.forEach(e => {
     if (e.act){ if (!ag){ ag = { act:true, items:[] }; groups.push(ag); } ag.items.push(e); return; }
     if (!isProd(e)){ groups.push({ nota:true, items:[e] }); return; }
-    const r = rowOf(e), key = r ? [r[2], r[3], r[4], r[6], isFluid(e, r) ? "F" : ""].join("|") : "x" + e.id;
+    /* lavorazione e codice finito diversi (Fessuratrice, Filettatrice) = schede separate */
+    const r = rowOf(e), key = r ? [r[2], r[3], r[4], r[6], isFluid(e, r) ? "F" : "", (e.lav || "").trim().toLowerCase(), (e.fin || "").trim().toUpperCase()].join("|") : "x" + e.id;
     if (byKey.has(key)) byKey.get(key).items.push(e);
-    else { const g = { r, items:[e], fluid:isFluid(e, r) }; byKey.set(key, g); groups.push(g); }
+    else { const g = { r, items:[e], fluid:isFluid(e, r), lk:[(e.lav || "").trim().toLowerCase(), (e.fin || "").trim().toUpperCase()].join("|") }; byKey.set(key, g); groups.push(g); }
   });
   return groups;
 }
@@ -1395,7 +1396,7 @@ function groupCardHTML(g, line, day){
     return `<li><span class="gfmt">${ri ? esc(formatLenCell(ri) || "formato non indicato") : ""}</span> ${codeHTML(e, "gcode")}${e.cont ? ` <span class="gidem">idem</span>` : ""}${e.custom ? ` <span class="tag fc">fuori catalogo</span>` : ""}${e.lav ? `<div class="glav">${esc(e.lav)}</div>` : ""}${e.qty || e.note ? `<div class="gq">${esc(e.qty)}${e.qty && e.note ? " " : ""}${e.note ? `<i>${esc(e.note)}</i>` : ""}</div>` : ""}</li>`; }).join("");
   return `<button class="job gc" style="--stripe:${stripeFor(r)}" data-line="${line}" data-day="${day}" data-ids="${ids}"><div class="gh">${head}</div>${r && !isCorr(r) ? `<div class="gfam${g.fluid ? " gfluid" : ""}">${esc(g.fluid ? "Fluid" : famLabel(r[2]))}</div>` : ""}<ul>${items}</ul></button>`;
 }
-const gKey = g => (!g || g.nota || g.act || !g.r) ? null : [g.r[2], g.r[3], g.r[4], g.r[6], g.fluid ? "F" : ""].join("|");
+const gKey = g => (!g || g.nota || g.act || !g.r) ? null : [g.r[2], g.r[3], g.r[4], g.r[6], g.fluid ? "F" : "", g.lk || ""].join("|");
 function layoutRuns(days, ND){
   const runs = [], open = new Map();
   for (let d = 0; d < ND; d++){
