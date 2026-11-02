@@ -1499,6 +1499,24 @@ function plannedOf(b){
   const wks = progIndex().get("t:" + b.id) || new Set();
   return (b.planned || []).filter(p => wks.has(p.wk));
 }
+/* codici presenti nella settimana in corso (anche se inseriti direttamente nel programma, non dalla lista) */
+let CW_S = null, CW_V = -1, CW_K = "", CW_MAP = null, CW_T = 0;
+const artKey = s => String(s || "").toUpperCase().replace(/\s+/g, "");
+function curWeekArts(){
+  const cw = keyOf(monday(TODAY));
+  if (CW_S === S && CW_V === PI_VER && CW_K === cw && CW_MAP && Date.now() - CW_T < 800) return CW_MAP;
+  const m = new Map(), w = (S.weeks || {})[cw], d = (w && w.draft) || {};
+  const add = (e, rep, line, day) => { if (!e) return; [e.art, e.text].forEach(v => { const k = artKey(v); if (!k) return; if (!m.has(k)) m.set(k, []); m.get(k).push({ rep, line, day }); }); };
+  REPS.forEach(r => Object.entries(d[r] || {}).forEach(([line, days]) => (days || []).forEach((list, day) => (list || []).forEach(e => add(e, r, line, day)))));
+  Object.entries(d.spans || {}).forEach(([r, lines]) => Object.entries(lines || {}).forEach(([line, list]) => (list || []).forEach(e => add(e, r, line, null))));
+  CW_S = S; CW_V = PI_VER; CW_K = cw; CW_MAP = m; CW_T = Date.now(); return m;
+}
+function curWeekByCode(b){
+  const k = artKey(b.entry && b.entry.art); if (!k) return [];
+  const hits = curWeekArts().get(k) || [], cw = keyOf(monday(TODAY)), by = new Map();
+  hits.forEach(h => { if (!REPARTI[h.rep]) return; const id = h.rep + "|" + h.line; if (!by.has(id)) by.set(id, { rep:h.rep, line:h.line, days:new Set() }); by.get(id).days.add(h.day); });
+  return [...by.values()].map(g => ({ wk:cw, rep:g.rep, line:g.line, day: g.days.size === 1 && !g.days.has(null) ? [...g.days][0] : null }));
+}
 
 /* ---------- ordini clienti della Fessuratrice ---------- */
 const ordersOn = (rep) => !!(REPARTI[rep || UI.rep] && REPARTI[rep || UI.rep].orders);
@@ -2049,7 +2067,7 @@ function todoRowHTML(b){
     ${machineBox(b)}
     ${planSelect(b)}
     <div class="tacts">${readOnly() ? "" : `<button class="ghost tbtn" data-tedit="${b.id}">Modifica</button><button class="ghost tbtn" data-tdel="${b.id}">Togli</button>`}</div>
-    ${(() => { const cw = keyOf(monday(TODAY)), cur = pl.filter(p => p.wk === cw), oth = pl.filter(p => p.wk !== cw), ln = p => `${esc(plannedLabel(p))}${p.at ? ` <span>(messo il ${shortDate(p.at)})</span>` : ""}`;
+    ${(() => { const cw = keyOf(monday(TODAY)), cur0 = pl.filter(p => p.wk === cw), cur = cur0.concat(curWeekByCode(b).filter(c => !cur0.some(p => p.rep === c.rep && p.line === c.line))), oth = pl.filter(p => p.wk !== cw), ln = p => `${esc(plannedLabel(p))}${p.at ? ` <span>(messo il ${shortDate(p.at)})</span>` : ""}`;
       return (cur.length ? `<div class="tplan tprod">${cur.map(p => `In produzione questa settimana: ${ln(p)}`).join("<br>")}</div>` : "")
         + (oth.length ? `<div class="tplan">${oth.map(p => `In previsione: ${ln(p)}`).join("<br>")}</div>` : ""); })()}
   </div>`;
