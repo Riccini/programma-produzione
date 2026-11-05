@@ -329,6 +329,7 @@ hr.cvsep{border:0;border-top:1px solid var(--line);margin:4px 0 14px}
 .vt tr.alt > td,.vt tr.alt > th.vl{background-color:var(--alt)}
 .vt tr.alt > td.today{background:var(--altToday)}
 .vt tr > td.vb{background:var(--backlog)}
+.vt td.vempty{background-image:repeating-linear-gradient(45deg,transparent 0 7px,var(--line2) 7px 8px)!important}
 .vt thead th{border-bottom:2px solid var(--sep2)}
 .qe{display:flex;flex-direction:column;gap:4px}
 .cbtns{margin-top:auto;display:flex;gap:2px;flex-wrap:wrap}
@@ -775,25 +776,25 @@ function spec(r){
 
 const REPARTI = {
   polier:{ nome:"Polier", titolo:"Programma di produzione reparto Polier", sottotitolo:"Produzione tubi Polier / PP triplo strato", mod:"Mod.81 Rev.12",
-    linee:[{id:"L4",nome:"Linea 4",mac:"Krauss-Maffei KME 60-35"},{id:"L1",nome:"Linea 1",mac:"Tecnomatic Atlas 60"},{id:"L2",nome:"Linea 2",mac:"Krauss-Maffei KME 75-36"},{id:"L3",nome:"Linea 3",mac:"Krauss-Maffei KME 105-36 BR"}],
+    linee:[{id:"L4",nome:"KME_60_36",mac:"LINEA_4_KRAUSS 60/36"},{id:"L1",nome:"ATLAS60",mac:"LINEA_1_ATLAS60"},{id:"L2",nome:"KME_75_36_POL",mac:"LINEA_2_KRAUSS 75/36 POLIER"},{id:"L3",nome:"KME_105",mac:"LINEA_3_KRAUSS TRIPLO STRATO"}],
     fam:["C1","C2","C18","C3","C4","C5","C7","C8","C15","C9","C10","C11","C12","C13","C14","C17","C6","P16"],
     legenda:"Cod. 1 Polier UNI EN 12201 / UNI 15494, Cod. 2 Polier RC1, Cod. 3 Idropolier UNI 15494, Cod. 4 Polier BD UNI 7990, Cod. 5 Irriga BD, Cod. 6 Minifiber, Cod. 7 Polier Gas UNI EN 1555, Cod. 8 Monotubo HDPE, Cod. 9 Ecopozzo PP bicchierato, Cod. 10 Ecopozzo PP filettato, Cod. 11 Ecosond, Cod. 12 triPPlo+, Cod. 13 triPPlo+ PSV, Cod. 14 monoPiPe+, Cod. 15 Cavidotto Red Line, Cod. 17 Poly Mineral Strong, Cod. 18 Polier RC2" },
   kingcor:{ nome:"Kingcor", titolo:"Programma di produzione reparto Kingcor", sottotitolo:"Kingcor, Superfluid, PP e altre attività", mod:"Mod.103 Rev.04",
-    linee:[{id:"K1",nome:"Linea 1",mac:"Krauss-Maffei KME 90-36 B"},{id:"K2",nome:"Linea 2",mac:"Krauss-Maffei KME 90-36 B/R"},{id:"K3",nome:"Linea PP",mac:"Krauss-Maffei KME 75-36",gapBefore:true},{id:"KR",nome:"Rigranulazione",mac:"Altre attività",act:true,gapBefore:true,legendAct:true},{id:"KT",nome:"Triturazione",mac:"Altre attività",act:true}],
+    linee:[{id:"K1",nome:"FK_1",mac:"FRAENKISCHE LINEA 1"},{id:"K2",nome:"FK_2",mac:"FRAENKISCHE LINEA 2"},{id:"K3",nome:"3SPP",mac:"KME_75_36_3S_PP",gapBefore:true},{id:"KR",nome:"Rigranulazione",mac:"Altre attività",act:true,gapBefore:true,legendAct:true},{id:"KT",nome:"Triturazione",mac:"Altre attività",act:true}],
     fam:["C19","C20","C21","C12","C13","C14","C17","C9","C10","P43","P53","P54","P62"],
     legenda:"Cod. 19 Kingcor, Cod. 20 Superfluid, Cod. 21 Plus. PP: Cod. 9 Ecopozzo bicchierato, Cod. 10 Ecopozzo filettato, Cod. 12 triPPlo+, Cod. 13 triPPlo+ NF, Cod. 14 monoPiPe+, Cod. 17 Polystrong" },
   corrugar:{ nome:"Corrugar", titolo:"Programma di produzione reparto Corrugar", sottotitolo:"Corrugato e fibra ottica", mod:"Mod.06 Rev.11",
-    linee:[{id:"UC",nome:"UC 210/36 iV",mac:"Corrugatore",nofam:["P19","P31"]},{id:"FV200",nome:"FV 200",mac:"Corrugatore",nofam:["P19","P31"]},{id:"F90",nome:"F 90",mac:"Corrugatore",nofam:["P19","P31"]},{id:"FV75",nome:"FV 75",mac:"Corrugatore",nofam:["P19","P31"]},
-      {id:"AT45",nome:"Tecnomatic Atlas 45",mac:"Slim, Fender, Bundle"},{id:"VE45",nome:"Tecnomatic Vega 45",mac:"Minifiber"},{id:"BT75",nome:"Bandera TR75",mac:"Slim, Fender, Bundle"},{id:"BA75",nome:"Bausano 75",mac:"Cavidotto e tubo PE"}],
+    linee:[{id:"UC",nome:"UC210",mac:"Linea UC210 Corrugar",nofam:["P19","P31"]},{id:"FV200",nome:"FV200",mac:"Linea FV200 Corrugar",nofam:["P19","P31"]},{id:"F90",nome:"FV90",mac:"Linea FV90 Corrugar",nofam:["P19","P31"]},{id:"FV75",nome:"FV75",mac:"Linea FV75 Corrugar",nofam:["P19","P31"]},
+      {id:"AT45",nome:"BF1",mac:"Bundle fender Tecnomatic"},{id:"VE45",nome:"TCMF",mac:"Minifiber"},{id:"BT75",nome:"BF2",mac:"Bundle fender Bandera"},{id:"BA75",nome:"L5",mac:"L5 Bausano"}],
     fam:["P19","P31","C6","P06","C15","C8","P07","C1"],
     legenda:"Corrugar (450N, 750N, colorati IMQ), Drenocor, Drenofilter, Drenobar, Minifiber, Slim, Fender, Bundle, Cavidotto Red Line" }
 ,
   fessuratrice:{ nome:"Fessuratrice", titolo:"Programma di produzione reparto 5", sottotitolo:"Reparto 5", mod:"Mod.06 A Rev.00", lav:true, fin:true, orders:true,
-    linee:[{id:"FS",nome:"Primac",mac:"FS-C-L/110-400/3-R"}],
+    linee:[{id:"FS",nome:"FES_110_400",mac:"FESSURATORE PRIMAC 110/400"}],
     fam:["C20","C19","C21","C14","C17","C12","C13","C10","C9","C1","P43","P53","P16"],
     legenda:"Cod. 1 Polier PE100, Cod. 9 Ecopozzo bicchierato, Cod. 10 Ecopozzo filettato, Cod. 12 triPPlo+, Cod. 13 triPPlo+ PSV, Cod. 14 monoPiPe+, Cod. 17 Polystrong, Cod. 19 Kingcor, Cod. 20 Superfluid, Cod. 21 Plus. Per ogni articolo: codice del tubo cieco → codice del tubo finito dopo la fessurazione." },
   filettatrice:{ nome:"Filettatrice", titolo:"Programma di produzione reparto 5", sottotitolo:"Reparto 5", mod:"Mod.06 A Rev.00", lav:true,
-    linee:[{id:"F250",nome:"Sica FIL/S 250",mac:"Filettatrice"},{id:"F400",nome:"Sica FIL/S 400",mac:"Filettatrice"}],
+    linee:[{id:"F250",nome:"FIL_250",mac:"FILETTATRICE SICA 250"},{id:"F400",nome:"FIL_400",mac:"FILETTATRICE SICA 400"}],
     fam:["C10","C9","C11","P16","C1"],
     legenda:"Cod. 9 Ecopozzo bicchierato, Cod. 10 Ecopozzo filettato, Cod. 11 Ecosond. Il codice è quello del prodotto finito, con la lavorazione." }
 };
@@ -1469,7 +1470,7 @@ function viewTableHTML(data, ND, todayIdx){
       for (let d=0; d<ND; d++){
         const r = LR.occ[i] && LR.occ[i][d];
         if (r && r.start !== d) continue;
-        if (!r){ h += `<td class="${d===todayIdx?"today":""}"></td>`; continue; }
+        if (!r){ const vuoto = !extra && !LR.occ.some(row => row && row[d]); h += `<td class="${d===todayIdx?"today":""}${vuoto ? " vempty" : ""}"></td>`; continue; }
         const span = r.end - r.start + 1;
         h += `<td ${span > 1 ? `colspan="${span}" class="mrg${todayIdx >= r.start && todayIdx <= r.end ? " today" : ""}"` : `class="${d===todayIdx?"today":""}"`}>${mergedCardHTML(r, l.id)}</td>`;
       }
