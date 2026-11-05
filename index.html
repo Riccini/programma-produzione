@@ -776,11 +776,11 @@ function spec(r){
 
 const REPARTI = {
   polier:{ nome:"Polier", titolo:"Programma di produzione reparto Polier", sottotitolo:"Produzione tubi Polier / PP triplo strato", mod:"Mod.81 Rev.12",
-    linee:[{id:"L4",nome:"KME_60_36",mac:"LINEA_4_KRAUSS 60/36"},{id:"L1",nome:"ATLAS60",mac:"LINEA_1_ATLAS60"},{id:"L2",nome:"KME_75_36_POL",mac:"LINEA_2_KRAUSS 75/36 POLIER"},{id:"L3",nome:"KME_105",mac:"LINEA_3_KRAUSS TRIPLO STRATO"}],
+    linee:[{id:"L4",num:"Linea 4",nome:"KME_60_36",mac:"LINEA_4_KRAUSS 60/36"},{id:"L1",num:"Linea 1",nome:"ATLAS60",mac:"LINEA_1_ATLAS60"},{id:"L2",num:"Linea 2",nome:"KME_75_36_POL",mac:"LINEA_2_KRAUSS 75/36 POLIER"},{id:"L3",num:"Linea 3",nome:"KME_105",mac:"LINEA_3_KRAUSS TRIPLO STRATO"}],
     fam:["C1","C2","C18","C3","C4","C5","C7","C8","C15","C9","C10","C11","C12","C13","C14","C17","C6","P16"],
     legenda:"Cod. 1 Polier UNI EN 12201 / UNI 15494, Cod. 2 Polier RC1, Cod. 3 Idropolier UNI 15494, Cod. 4 Polier BD UNI 7990, Cod. 5 Irriga BD, Cod. 6 Minifiber, Cod. 7 Polier Gas UNI EN 1555, Cod. 8 Monotubo HDPE, Cod. 9 Ecopozzo PP bicchierato, Cod. 10 Ecopozzo PP filettato, Cod. 11 Ecosond, Cod. 12 triPPlo+, Cod. 13 triPPlo+ PSV, Cod. 14 monoPiPe+, Cod. 15 Cavidotto Red Line, Cod. 17 Poly Mineral Strong, Cod. 18 Polier RC2" },
   kingcor:{ nome:"Kingcor", titolo:"Programma di produzione reparto Kingcor", sottotitolo:"Kingcor, Superfluid, PP e altre attività", mod:"Mod.103 Rev.04",
-    linee:[{id:"K1",nome:"FK_1",mac:"FRAENKISCHE LINEA 1"},{id:"K2",nome:"FK_2",mac:"FRAENKISCHE LINEA 2"},{id:"K3",nome:"3SPP",mac:"KME_75_36_3S_PP",gapBefore:true},{id:"KR",nome:"Rigranulazione",mac:"Altre attività",act:true,gapBefore:true,legendAct:true},{id:"KT",nome:"Triturazione",mac:"Altre attività",act:true}],
+    linee:[{id:"K1",num:"Linea 1",nome:"FK_1",mac:"FRAENKISCHE LINEA 1"},{id:"K2",num:"Linea 2",nome:"FK_2",mac:"FRAENKISCHE LINEA 2"},{id:"K3",num:"Linea PP",nome:"3SPP",mac:"KME_75_36_3S_PP",gapBefore:true},{id:"KR",nome:"Rigranulazione",mac:"Altre attività",act:true,gapBefore:true,legendAct:true},{id:"KT",nome:"Triturazione",mac:"Altre attività",act:true}],
     fam:["C19","C20","C21","C12","C13","C14","C17","C9","C10","P43","P53","P54","P62"],
     legenda:"Cod. 19 Kingcor, Cod. 20 Superfluid, Cod. 21 Plus. PP: Cod. 9 Ecopozzo bicchierato, Cod. 10 Ecopozzo filettato, Cod. 12 triPPlo+, Cod. 13 triPPlo+ NF, Cod. 14 monoPiPe+, Cod. 17 Polystrong" },
   corrugar:{ nome:"Corrugar", titolo:"Programma di produzione reparto Corrugar", sottotitolo:"Corrugato e fibra ottica", mod:"Mod.06 Rev.11",
@@ -1876,6 +1876,8 @@ function proposeMachines(e){
   return [];
 }
 const lineName = m => { const L = REPARTI[m[0]].linee.find(l => l.id === m[1]); return L ? L.nome : m[1]; };
+/* nome breve per la colonna "Macchine" del listone: numero di linea se previsto (Polier, Kingcor) */
+const lineShort = m => { const L = REPARTI[m[0]].linee.find(l => l.id === m[1]); return L ? (L.num || L.nome) : m[1]; };
 const URG = ["Alta","Media","Bassa"];
 function todoSort(a, b){
   const u = URG.indexOf(a.urg) - URG.indexOf(b.urg); if (u) return u;
@@ -2033,9 +2035,9 @@ function openTodo(rep, line){
   const n = dlg.querySelector("#tqi"); if (n) n.focus({ preventScroll:true });
 }
 function machineBox(b){
-  const names = b.machines.filter(validM).map(lineName);
+  const names = b.machines.filter(validM).map(lineShort);
   if (readOnly()) return `<div class="tmro">${names.length ? esc(names.join(", ")) : "Nessuna macchina"}</div>`;
-  return `<details class="tmach"><summary>${names.length ? esc(names.join(", ")) : `<span class="warn">Scegli le macchine</span>`}</summary><div class="tmlist">${REPS.map(rp => `<div class="tmg"><b>${REPARTI[rp].nome}</b>${REPARTI[rp].linee.filter(l => !l.act).map(l => `<label><input type="checkbox" data-mck="${b.id}" value="${rp}|${l.id}" ${onMachine(b, rp, l.id) ? "checked" : ""}> ${esc(l.nome)} <small>${esc(l.mac)}</small></label>`).join("")}</div>`).join("")}<button class="primary tmok" type="button">Fatto</button></div></details>`;
+  return `<details class="tmach"><summary>${names.length ? esc(names.join(", ")) : `<span class="warn">Scegli le macchine</span>`}</summary><div class="tmlist">${REPS.map(rp => `<div class="tmg"><b>${REPARTI[rp].nome}</b>${REPARTI[rp].linee.filter(l => !l.act).map(l => `<label><input type="checkbox" data-mck="${b.id}" value="${rp}|${l.id}" ${onMachine(b, rp, l.id) ? "checked" : ""}> ${esc(l.num || l.nome)} <small>${esc(l.num ? l.nome : l.mac)}</small></label>`).join("")}</div>`).join("")}<button class="primary tmok" type="button">Fatto</button></div></details>`;
 }
 function weekOptions(){
   const out = [], m0 = monday(TODAY);
@@ -2125,7 +2127,7 @@ function printTodoList(){
       <td><b>${b.mag ? "Magazzino" : esc(b.qmin || "")}</b></td>
       <td>${(b.clients || []).filter(c => c.name).map(c => `<b>${esc(c.name)}</b>${c.qty ? " " + esc(c.qty) : ""}`).join("<br>")}</td>
       <td>${esc([b.entry.note, b.rif].filter(Boolean).join(" – "))}</td>
-      <td>${esc(b.machines.filter(validM).map(m => REPARTI[m[0]].nome + " " + lineName(m)).join(", "))}</td>
+      <td>${esc(b.machines.filter(validM).map(m => REPARTI[m[0]].nome + " " + lineShort(m)).join(", "))}</td>
       <td>${pl.length ? "sett. " + pl.map(p => isoWeek(fromKey(p.wk))).join(", ") : ""}</td></tr>`;
   };
   document.getElementById("print").innerHTML = `<section class="tlist">
