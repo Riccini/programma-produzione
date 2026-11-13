@@ -811,8 +811,8 @@ function printSheets(reps){
   return out;
 }
 const sheetReps = key => key === "r5" ? R5.slice() : [key];
-const ACT = { "1":"Rigranulazione/Triturazione Corrugar", "2":"Rigranulazione/Triturazione Kingcor", "3":"Rigranulazione/Triturazione PE100", "4":"Rigranulazione/Triturazione PE HD II°", "5":"Rigranulazione/Triturazione PE BD", "6":"PE AD Soffiaggio 48%", "7":"Altri" };
-const ACTSHORT = { "1":"Corrugar", "2":"Kingcor", "3":"PE100", "4":"PE HD II°", "5":"PE BD", "6":"PE AD Soffiaggio 48%", "7":"Altri" };
+const ACT = { "1":"Rigranulazione/Triturazione Corrugar", "2":"Rigranulazione/Triturazione PP", "3":"Rigranulazione/Triturazione PE100", "4":"Rigranulazione/Triturazione PE HD II°", "5":"Rigranulazione/Triturazione PE BD", "6":"PE AD Soffiaggio 48%", "7":"Altri" };
+const ACTSHORT = { "1":"Corrugar", "2":"PP", "3":"PE100", "4":"PE HD II°", "5":"PE BD", "6":"PE AD Soffiaggio 48%", "7":"Altri" };
 const isActLine = (line, rep) => { const L = REPARTI[rep || UI.rep].linee.find(l => l.id === line); return !!(L && L.act); };
 const actLegendHTML = () => `<div class="actleg"><b>Rigranulazione e triturazione</b> ${Object.entries(ACT).map(([k,v]) => `Cod. <b>${k}</b> ${esc(v)}`).join(", ")}</div>`;
 const GIORNI = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"];
