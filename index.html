@@ -727,7 +727,7 @@ const FAM = {
   P19:"Corrugar, Drenocor, Drenobar", P31:"Corrugar colorato IMQ", P43:"PE fognatura corrugato", P53:"PPS e KC PP",
   P54:"Corrugato PP", P62:"PP SN16"
 };
-const famNum = f => f[0] === "C" ? f.slice(1) : "";
+const famNum = f => f && f[0] === "C" ? esc(f.slice(1)) : "";
 const famLabel = f => (FAM[f] || "Famiglia " + f.slice(1));
 const FAMCOL = {
   C1:"#2F6DB5",C2:"#2F6DB5",C3:"#2F6DB5",C18:"#2F6DB5",C4:"#3F8A57",C5:"#3F8A57",C8W:"#9AA6AB",
@@ -819,6 +819,7 @@ const GIORNI = ["Lunedì","Martedì","Mercoledì","Giovedì","Venerdì","Sabato"
 const GG = ["Lun","Mar","Mer","Gio","Ven","Sab"];
 const MESI = ["gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"];
 const MES = ["gen","feb","mar","apr","mag","giu","lug","ago","set","ott","nov","dic"];
+const DEFAULT_LINK = "https://riccini.github.io/programma-produzione/";
 const DEFAULT_CC = ["sales@riccini.it","marilena.fiore@riccini.it","polier@riccini.it","tommaso.beneggi@riccini.it","ddt@riccini.it","giacomo.spaccini@riccini.it","tecnico.lab@riccini.it","corrugar@riccini.it","vincenzo.sorella@riccini.it","ddt2@riccini.it"];
 
 /* ---------- date ---------- */
@@ -831,7 +832,7 @@ function isoWeek(d){ const t = new Date(Date.UTC(d.getFullYear(),d.getMonth(),d.
 function rangeLabel(m){ let nd = 5; try { nd = nDays(); } catch(e){} const s = addDays(m, nd-1); return m.getMonth()===s.getMonth() ? `${m.getDate()}–${s.getDate()} ${MESI[s.getMonth()]} ${s.getFullYear()}` : `${m.getDate()} ${MES[m.getMonth()]} – ${s.getDate()} ${MES[s.getMonth()]} ${s.getFullYear()}`; }
 const stamp = iso => { const d = new Date(iso); return `${d.getDate()} ${MES[d.getMonth()]} ${pad(d.getHours())}:${pad(d.getMinutes())}`; };
 
-/* ---------- archivio dati (sostituibile con Firebase) ---------- */
+/* ---------- archivio dati ---------- */
 const STORE_KEY = "riccini-programma-produzione-v1";
 const clone = o => JSON.parse(JSON.stringify(o));
 const uid = () => "e" + Math.random().toString(36).slice(2,9);
@@ -839,13 +840,40 @@ function emptyRep(rep){ const o = {}; REPARTI[rep].linee.forEach(l => o[l.id] = 
 function emptyWeek(){ const o = {}; REPS.forEach(r => o[r] = emptyRep(r)); return o; }
 function defaults(){
   return { weeks:{ "2026-10-19":{ draft:clone(SEED), revs:[{ n:1, at:"2026-10-16T15:09:00", data:clone(SEED), changes:[], msg:"" }] } },
-    backlog:[], extra:[], machines:{}, meta:{}, contacts:{ to:"produzione@riccini.it", cc:DEFAULT_CC.join("\n"), link:"", firma:"Nicola Minguzzi" } };
+    backlog:[], extra:[], machines:{}, meta:{}, idx:{}, contacts:{ to:"produzione@riccini.it", cc:DEFAULT_CC.join("\n"), link:"", firma:"Nicola Minguzzi" } };
 }
-/* ---------- database condiviso (Firebase Realtime Database) ---------- */
+/* ---------- database condiviso (Firebase Realtime Database) ----------
+   All'apertura si scaricano solo i dati generali (elenco da produrre, ordini, codici, contatti)
+   e le settimane vicine a oggi. Le altre settimane si scaricano quando qualcuno le apre:
+   così la pagina resta veloce anche quando l'archivio avrà anni di programmi.
+   Per sapere cosa è stato programmato nelle settimane non scaricate c'è un piccolo indice ("indice"). */
 const DBROOT = "programma-produzione";
-let FB = null, lastFlat = null, LOADING = true, CONN = false, SAVING = 0, SAVEDAT = null, SAVEERR = "";
+const TOPS = ["backlog","ordini","catalogo","macchine","meta","contatti","indice"];
+const WIN_BACK = 8, WIN_FWD = 13;
+let FB = null, lastFlat = null, LOADING = true, CONN = false, SAVING = 0, SAVEDAT = null, SAVEERR = "", RETRY = 0;
+const MIRROR = { top:{}, weeks:{} }, TOPSEEN = new Set(), WKSEEN = new Set(), WKSUB = new Set();
+const weekReady = k => !LOADING && !!FB && WKSEEN.has(k);
 const fbKey = s => encodeURIComponent(String(s)).replace(/\./g, "%2E");
 const P = s => { if (typeof s !== "string") return null; try { return JSON.parse(s); } catch(e){ return null; } };
+/* le revisioni pubblicate non cambiano più: il loro testo si calcola una volta sola */
+let REVJ = new WeakMap(), REVP = new Map();
+const revStr = r => { let s = REVJ.get(r); if (s == null){ s = JSON.stringify(r); REVJ.set(r, s); } return s; };
+function revParse(path, s, noCache){
+  if (typeof s !== "string") return null;
+  if (noCache) return P(s);
+  const c = REVP.get(path); if (c && c.s === s) return c.o;
+  const o = P(s); if (o){ REVP.set(path, { s, o }); REVJ.set(o, s); }
+  return o;
+}
+function resetRevCache(){ REVJ = new WeakMap(); REVP = new Map(); }
+/* indice di una settimana: righe d'ordine e articoli dell'elenco che vi sono programmati */
+function weekIdx(w){
+  const o = new Set(), t = new Set(), d = (w && w.draft) || {};
+  const see = e => { if (!e) return; if (e.rowId) o.add(e.rowId); if (e.todoId) t.add(e.todoId); };
+  REPS.forEach(r => Object.values(d[r] || {}).forEach(days => (days || []).forEach(list => (list || []).forEach(see))));
+  Object.values(d.spans || {}).forEach(lines => Object.values(lines || {}).forEach(list => (list || []).forEach(see)));
+  return o.size || t.size ? JSON.stringify({ o:[...o].sort(), t:[...t].sort() }) : null;
+}
 function flatten(st){
   const f = {};
   Object.entries(st.weeks || {}).forEach(([wk, w]) => {
@@ -855,8 +883,11 @@ function flatten(st){
     Object.entries(w.draft || {}).forEach(([rep, lines]) => REPARTI[rep] && Object.entries(lines || {}).forEach(([line, days]) => (days || []).forEach((list, d) => {
       if (list && list.length) f[`weeks/${wk}/draft/${rep}/${line}/${d}`] = JSON.stringify(list);
     })));
-    (w.revs || []).forEach(r => f[`weeks/${wk}/revs/${r.n}`] = JSON.stringify(r));
+    (w.revs || []).forEach(r => f[`weeks/${wk}/revs/${r.n}`] = revStr(r));
+    const ix = weekIdx(w); if (ix) f[`indice/${wk}`] = ix;
   });
+  /* settimane non scaricate: il loro indice resta com'è */
+  Object.entries(st.idx || {}).forEach(([wk, s]) => { if (!(st.weeks || {})[wk] && !WKSEEN.has(wk) && typeof s === "string") f[`indice/${wk}`] = s; });
   (st.backlog || []).forEach(b => f[`backlog/${b.id}`] = JSON.stringify(b));
   (st.orders || []).forEach(o => f[`ordini/${o.id}`] = JSON.stringify(o));
   (st.extra || []).forEach(r => f[`catalogo/extra/${fbKey(r[0])}`] = JSON.stringify(r));
@@ -866,8 +897,8 @@ function flatten(st){
   f["contatti"] = JSON.stringify(st.contacts);
   return f;
 }
-function unflatten(tree){
-  const out = { weeks:{}, backlog:[], extra:[], edits:{}, contacts: P(tree.contatti) || defaults().contacts };
+function unflatten(tree, noCache){
+  const out = { weeks:{}, backlog:[], extra:[], edits:{}, idx:{}, contacts: P(tree.contatti) || defaults().contacts };
   Object.entries(tree.weeks || {}).forEach(([wk, w]) => {
     const W = { draft:emptyWeek(), revs:[] };
     Object.entries((w && w.draft) || {}).forEach(([rep, lines]) => { if (!W.draft[rep]) return;
@@ -876,9 +907,10 @@ function unflatten(tree){
     W.sat = !!(w && w.sat);
     W.draft.note = P(w && w.draft && w.draft.note) || "";
     W.draft.spans = {}; Object.entries((w && w.draft && w.draft.spans) || {}).forEach(([rep, lines]) => { if (!REPARTI[rep]) return; W.draft.spans[rep] = {}; Object.entries(lines || {}).forEach(([line, s]) => { const l = P(s); if (Array.isArray(l)) W.draft.spans[rep][line] = l; }); });
-    W.revs = Object.values((w && w.revs) || {}).map(P).filter(Boolean).sort((a,b) => a.n - b.n);
+    W.revs = Object.entries((w && w.revs) || {}).map(([n, s]) => revParse(wk + "/" + n, s, noCache)).filter(Boolean).sort((a,b) => a.n - b.n);
     out.weeks[wk] = W;
   });
+  Object.entries(tree.indice || {}).forEach(([wk, s]) => { if (typeof s === "string") out.idx[wk] = s; });
   out.backlog = Object.values(tree.backlog || {}).map(P).filter(Boolean);
   out.orders = Object.values(tree.ordini || {}).map(P).filter(o => o && Array.isArray(o.rows));
   out.machines = {}; Object.values(tree.macchine || {}).map(P).filter(Array.isArray).forEach(r => out.machines[r[0]] = typeof r[1] === "string" ? [[r[1], r[2]]] : r[1]);
@@ -887,20 +919,40 @@ function unflatten(tree){
   Object.values((tree.catalogo && tree.catalogo.edits) || {}).map(P).filter(Array.isArray).forEach(r => out.edits[r[0]] = r.slice(1));
   return out;
 }
+/* quello che c'è davvero sul database: l'indice è quello letto, non quello ricalcolato */
+function dbFlat(st){
+  const f = flatten(st);
+  Object.keys(f).forEach(k => { if (k.startsWith("indice/")) delete f[k]; });
+  Object.entries(MIRROR.top.indice || {}).forEach(([wk, s]) => { if (typeof s === "string") f["indice/" + wk] = s; });
+  return f;
+}
+const sameFlat = (a, b) => { const ka = Object.keys(a); return ka.length === Object.keys(b).length && ka.every(k => a[k] === b[k]); };
 function setSync(){
   const el = document.getElementById("sync"); if (!el) return;
   let cls = "ok", txt;
   if (LOADING){ cls = "wait"; txt = SAVEERR || "Collegamento al database…"; if (SAVEERR) cls = "bad"; }
   else if (SAVEERR){ cls = "bad"; txt = "Errore di salvataggio: " + SAVEERR; }
-  else if (!CONN){ cls = "bad"; txt = "Senza connessione: le modifiche partono appena torna la rete"; }
+  else if (!CONN){ cls = "bad"; txt = "Senza connessione: le modifiche partono appena torna la rete, non chiudere la pagina"; }
   else if (SAVING){ cls = "wait"; txt = "Salvataggio…"; }
+  else if (!WKSEEN.has(UI.wk)){ cls = "wait"; txt = "Caricamento della settimana…"; }
   else txt = SAVEDAT ? `Salvato alle ${pad(SAVEDAT.getHours())}:${pad(SAVEDAT.getMinutes())}:${pad(SAVEDAT.getSeconds())}` : "Collegato, salvataggio automatico";
   el.className = "sync " + cls; el.textContent = txt;
+}
+/* copia locale nel browser: solo le settimane vicine, scritta al massimo una volta al secondo */
+let LOCAL_T = null;
+function saveLocal(){
+  clearTimeout(LOCAL_T); LOCAL_T = null;
+  try {
+    const m = monday(TODAY), lo = keyOf(addDays(m, -7 * WIN_BACK)), hi = keyOf(addDays(m, 7 * WIN_FWD)), weeks = {};
+    Object.entries(S.weeks || {}).forEach(([k, w]) => { if (k >= lo && k <= hi) weeks[k] = w; });
+    localStorage.setItem(STORE_KEY, JSON.stringify({ ...S, weeks }));
+  } catch(e){}
 }
 const Store = {
   load(){ try { const s = localStorage.getItem(STORE_KEY); if (s) return JSON.parse(s); } catch(e){} return defaults(); },
   save(){
-    try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch(e){}
+    clearTimeout(Store._note); Store._note = null;
+    if (!LOCAL_T) LOCAL_T = setTimeout(saveLocal, 1000);
     if (!FB || LOADING || !lastFlat) return;
     const f = flatten(S), upd = {};
     Object.keys(f).forEach(k => { if (lastFlat[k] !== f[k]) upd[k] = f[k]; });
@@ -911,34 +963,95 @@ const Store = {
     if (!Object.keys(upd).length) return;
     SAVING++; setSync();
     FB.update(FB.ref(FB.db, DBROOT), upd)
-      .then(() => { SAVEDAT = new Date(); SAVEERR = ""; })
+      .then(() => { SAVEDAT = new Date(); SAVEERR = ""; RETRY = 0; })
       .catch(e => {
+        const why = (e && (e.code || e.message)) || "sconosciuto";
         SAVEERR = (e && e.message) || "sconosciuto";
         /* le chiavi non salvate verranno riscritte al prossimo tentativo */
         if (lastFlat) Object.keys(upd).forEach(k => { lastFlat[k] = "\u0000da-riprovare"; });
-        clearTimeout(Store._retry); Store._retry = setTimeout(() => Store.save(), 5000);
+        clearTimeout(Store._retry);
+        /* permesso negato: inutile insistere, si riprova alla prossima modifica.
+           Altri errori: nuovo tentativo dopo 5 s, poi sempre più distanziati fino a 1 minuto */
+        if (/permission|denied/i.test(why)) SAVEERR = "il database non accetta la modifica (permesso negato)";
+        else { RETRY = Math.min(60000, RETRY ? RETRY * 2 : 5000); Store._retry = setTimeout(() => Store.save(), RETRY); }
       })
       .finally(() => { SAVING--; setSync(); });
-  }
+  },
+  /* testo scritto a mano (note generali): si salva quando ci si ferma di scrivere */
+  saveSoon(){ clearTimeout(Store._note); Store._note = setTimeout(() => Store.save(), 700); }
 };
-window.addEventListener("beforeunload", e => { if (SAVING > 0){ e.preventDefault(); e.returnValue = ""; } });
+window.addEventListener("beforeunload", e => {
+  if (Store._note) Store.save();
+  if (LOCAL_T) saveLocal();
+  if (SAVING > 0){ e.preventDefault(); e.returnValue = ""; }
+});
+window.addEventListener("pagehide", () => { if (LOCAL_T) saveLocal(); });
+function onFbErr(err){ SAVEERR = "accesso negato al database (" + ((err && err.message) || "") + ")"; setSync(); }
+/* ricostruisce lo stato da quello che è arrivato dal database */
+function applyMirror(){
+  const nS = unflatten({ ...MIRROR.top, weeks:MIRROR.weeks }), nf = dbFlat(nS);
+  PI_VER++;
+  if (lastFlat && sameFlat(nf, lastFlat)) return false;
+  S = nS; lastFlat = nf;
+  if (ensureSeed()) Store.save();
+  syncCatalog(); return true;
+}
+/* un salvataggio tocca più parti del database e ognuna avvisa per conto suo:
+   si aspetta che arrivino tutte e si aggiorna una volta sola */
+let DATA_T = null, DATA_WK = false;
+function onData(weekNew){
+  DATA_WK = DATA_WK || weekNew;
+  if (!DATA_T) DATA_T = setTimeout(() => { const w = DATA_WK; DATA_T = null; DATA_WK = false; dataNow(w); }, 0);
+}
+function dataNow(weekNew){
+  if (LOADING){
+    if (TOPS.some(k => !TOPSEEN.has(k)) || !WKSEEN.has(keyOf(monday(TODAY))) || !WKSEEN.has(UI.wk)) return;
+    LOADING = false; SAVEERR = "";
+    if (TOPS.every(k => MIRROR.top[k] == null)){
+      /* database vuoto: primo avvio, si carica il programma di questo computer */
+      lastFlat = {}; ensureSeed(); Store.save(); render();
+      toast("Primo avvio: programma caricato sul database condiviso"); return;
+    }
+    applyMirror(); render(); buildIndexOnce(); return;
+  }
+  if (applyMirror() || weekNew) render();
+}
+function subWeek(wk){
+  if (!FB || WKSUB.has(wk)) return;
+  WKSUB.add(wk);
+  FB.onValue(FB.ref(FB.db, `${DBROOT}/weeks/${wk}`), snap => {
+    const first = !WKSEEN.has(wk);
+    MIRROR.weeks[wk] = snap.val(); WKSEEN.add(wk);
+    onData(first);
+  }, onFbErr);
+}
+function subWindow(){ const m = monday(TODAY); for (let i = -WIN_BACK; i <= WIN_FWD; i++) subWeek(keyOf(addDays(m, i * 7))); }
 window.__fbInit = api => {
   FB = api;
   api.onValue(api.ref(api.db, ".info/connected"), s => { CONN = !!s.val(); setSync(); });
-  api.onValue(api.ref(api.db, DBROOT), snap => {
-    const tree = snap.val();
-    if (LOADING && !tree){
-      LOADING = false; SAVEERR = ""; lastFlat = {}; ensureSeed(); Store.save(); render();
-      toast("Primo avvio: programma caricato sul database condiviso"); return;
-    }
-    LOADING = false; SAVEERR = "";
-    const nS = unflatten(tree || {}), nf = flatten(nS);
-    if (lastFlat && Object.keys(nf).length === Object.keys(lastFlat).length && Object.keys(nf).every(k => nf[k] === lastFlat[k])) return;
-    S = nS; lastFlat = nf;
-    if (ensureSeed()) Store.save();
-    syncCatalog(); render();
-  }, err => { SAVEERR = "accesso negato al database (" + ((err && err.message) || "") + ")"; setSync(); });
+  TOPS.forEach(k => api.onValue(api.ref(api.db, `${DBROOT}/${k}`), snap => { MIRROR.top[k] = snap.val(); TOPSEEN.add(k); onData(false); }, onFbErr));
+  subWeek(UI.wk); subWindow();
 };
+/* tutto l'archivio, settimane vecchie comprese (per la copia di sicurezza e le operazioni su tutto) */
+async function fullTree(){
+  if (!FB || !FB.get) throw new Error("database non raggiungibile");
+  const snap = await FB.get(FB.ref(FB.db, DBROOT));
+  return snap.val() || {};
+}
+/* una volta sola: costruisce l'indice di tutte le settimane già presenti sul database */
+async function buildIndexOnce(){
+  if (!FB || !FB.get || LOADING || (S.meta && S.meta.idxV)) return;
+  try {
+    const snap = await FB.get(FB.ref(FB.db, `${DBROOT}/weeks`)), all = snap.val() || {}, light = {};
+    Object.entries(all).forEach(([wk, w]) => { light[wk] = w ? { draft:w.draft, sat:w.sat } : null; });
+    const full = unflatten({ weeks:light }, true);
+    if (S.meta && S.meta.idxV) return;
+    S.idx = S.idx || {};
+    Object.entries(full.weeks).forEach(([wk, w]) => { const ix = weekIdx(w); if (ix) S.idx[wk] = ix; else delete S.idx[wk]; });
+    S.meta = { ...(S.meta || {}), idxV:1 };
+    Store.save();
+  } catch(e){ /* si riproverà alla prossima apertura */ }
+}
 setTimeout(() => { if (LOADING && !FB){ SAVEERR = "Impossibile raggiungere il database. Controlla la connessione a internet e riapri la pagina."; setSync(); } }, 12000);
 let S = Store.load();
 if (!S.extra) S.extra = [];
@@ -946,6 +1059,7 @@ if (!S.edits) S.edits = {};
 if (!S.machines) S.machines = {};
 if (!S.meta) S.meta = {};
 if (!S.orders) S.orders = [];
+if (!S.idx) S.idx = {};
 function syncCatalog(){
   const ed = S.edits || {}, seen = new Set();
   const rows = BASE.map(r => { seen.add(r[0]); return ed[r[0]] ? [r[0], ...ed[r[0]], 2] : r.slice(); });
@@ -966,13 +1080,16 @@ function registerArticle(code, c){
 }
 
 /* ---------- stato interfaccia ---------- */
-const TODAY = new Date();
+let TODAY = new Date();
 const UI = { rep:"polier", wk:keyOf(monday(TODAY)), view:"draft", viewAuto:true, editMode:false, unlocked:{} };
 function satOn(data){ const w = S.weeks[UI.wk]; return !!(w && w.sat) || REPS.some(r => Object.values((data||{})[r]||{}).some(days => (days[5]||[]).length)); }
 const nDays = () => satOn(viewData()) ? 6 : 5;
 
 function weekObj(k, create){
-  if (!S.weeks[k] && create) S.weeks[k] = { draft:emptyWeek(), revs:[] };
+  if (!S.weeks[k] && create){
+    if (FB && !WKSEEN.has(k)){ subWeek(k); throw new Error("settimana non ancora caricata"); }
+    S.weeks[k] = { draft:emptyWeek(), revs:[] };
+  }
   const w = S.weeks[k];
   if (w && !w.draft.spans) w.draft.spans = {};
   if (w) REPS.forEach(r => { if (!w.draft[r]) w.draft[r] = emptyRep(r); REPARTI[r].linee.forEach(l => { if (!w.draft[r][l.id]) w.draft[r][l.id] = [[],[],[],[],[],[]]; }); });
@@ -986,7 +1103,7 @@ function viewData(){
 }
 const lastRev = w => w && w.revs.length ? w.revs[w.revs.length-1] : null;
 const isPast = () => fromKey(UI.wk) < monday(TODAY);
-const readOnly = () => LOADING || UI.mobile || UI.view !== "draft" || (isPast() && !UI.unlocked[UI.wk] && !UI.editMode);
+const readOnly = () => LOADING || (FB && !WKSEEN.has(UI.wk)) || UI.mobile || UI.view !== "draft" || (isPast() && !UI.unlocked[UI.wk] && !UI.editMode);
 function dirty(k){ const w = S.weeks[k]; if (!w) return false; const r = lastRev(w); return !r ? hasAny(w.draft) : diff(r.data, w.draft).length > 0; }
 const spansOf = (d, rep, line) => (d && d.spans && d.spans[rep] && d.spans[rep][line]) || [];
 function spanList(rep, line, wk){ const w = weekObj(wk || UI.wk, true); if (!w.draft.spans[rep]) w.draft.spans[rep] = {}; if (!w.draft.spans[rep][line]) w.draft.spans[rep][line] = []; return w.draft.spans[rep][line]; }
@@ -997,19 +1114,31 @@ function rowOf(e){ if (!e) return null; if (e.custom){ const c = e.custom; retur
 const isProd = e => !!(e && (e.art || e.custom));
 function normV(s){ s = String(s ?? "").trim(); if (!s) return ""; if (s.includes("/")) return s.replace(/^ø\s*/i, ""); const n = normN(s.replace(/^(pn|sn|sdr|s|ø|d)\s*/i, "").replace(/\s*m$/i, "")); return n ?? s; }
 const sig = e => e.custom ? "X" + (e.art||"") + "|" + JSON.stringify(e.custom) : e.art ? e.art : "#" + (e.text||"");
+/* le voci si riconoscono dal loro identificativo, così due righe con lo stesso codice
+   nella stessa cella restano distinte; due voci identiche senza identificativo vengono numerate */
+function keyed(list){
+  const seen = new Map(), m = new Map();
+  list.forEach(e => { const b = e.id || "#" + sig(e), n = seen.get(b) || 0; seen.set(b, n + 1); m.set(n ? b + "~" + n : b, e); });
+  return m;
+}
+const entryMod = (o, e) => (o.qty||"")!==(e.qty||"") || (o.note||"")!==(e.note||"") || (o.lav||"")!==(e.lav||"") || (o.fin||"")!==(e.fin||"") || !!o.fluid !== !!e.fluid;
+function diffList(O, N, where, out, withMod){
+  const om = keyed(O), nm = keyed(N);
+  nm.forEach((e, k) => {
+    const o = om.get(k);
+    if (!o) out.push({ ...where, kind:"add", e });
+    else if (sig(o) !== sig(e)){ out.push({ ...where, kind:"del", e:o }); out.push({ ...where, kind:"add", e }); }
+    else if (withMod && entryMod(o, e)) out.push({ ...where, kind:"mod", e, o });
+  });
+  om.forEach((o, k) => { if (!nm.has(k)) out.push({ ...where, kind:"del", e:o }); });
+}
 function diff(oldD, newD){
   const out = [];
   REPS.forEach(rep => REPARTI[rep].linee.forEach(l => { for (let d=0; d<6; d++){
-    const O = (oldD?.[rep]?.[l.id]?.[d]) || [], N = (newD?.[rep]?.[l.id]?.[d]) || [];
-    const om = new Map(), nm = new Map();
-    O.forEach(e => om.set(sig(e), e)); N.forEach(e => nm.set(sig(e), e));
-    N.forEach(e => { const o = om.get(sig(e)); if (!o) out.push({rep,line:l.id,day:d,kind:"add",e}); else if ((o.qty||"")!==(e.qty||"") || (o.note||"")!==(e.note||"") || (o.lav||"")!==(e.lav||"") || (o.fin||"")!==(e.fin||"") || !!o.fluid !== !!e.fluid) out.push({rep,line:l.id,day:d,kind:"mod",e,o}); });
-    O.forEach(e => { if (!nm.has(sig(e))) out.push({rep,line:l.id,day:d,kind:"del",e}); });
+    diffList((oldD?.[rep]?.[l.id]?.[d]) || [], (newD?.[rep]?.[l.id]?.[d]) || [], { rep, line:l.id, day:d }, out, true);
   }}));
   REPS.forEach(rep => REPARTI[rep].linee.forEach(l => {
-    const O = spansOf(oldD, rep, l.id), N = spansOf(newD, rep, l.id), os = new Set(O.map(sig)), ns = new Set(N.map(sig));
-    N.forEach(e => { if (!os.has(sig(e))) out.push({ rep, line:l.id, day:-1, kind:"add", e }); });
-    O.forEach(e => { if (!ns.has(sig(e))) out.push({ rep, line:l.id, day:-1, kind:"del", e }); });
+    diffList(spansOf(oldD, rep, l.id), spansOf(newD, rep, l.id), { rep, line:l.id, day:-1 }, out, true);
   }));
   if ((oldD?.note || "") !== (newD?.note || "")) out.push({ kind:"note", e:{ text:newD?.note || "" } });
   return out;
@@ -1056,14 +1185,14 @@ function commit(msg){ Store.save(); render(); if (msg) toast(msg); }
 
 /* ---------- render principale ---------- */
 function jobHTML(e, rep, line, day, ro){
-  if (e.act) return `<button class="job act" data-id="${e.id}" data-line="${line}" data-day="${day}"><span class="fn">${esc(e.act)}</span>${esc(ACTSHORT[e.act] || "")}</button>`;
+  if (e.act) return `<button class="job act" data-id="${esc(e.id)}" data-line="${line}" data-day="${day}"><span class="fn">${esc(e.act)}</span>${esc(ACTSHORT[e.act] || "")}</button>`;
   const drag = ro ? "" : `draggable="true" data-drag="cell" data-rep="${rep}" data-line="${line}" data-day="${day}"`;
-  if (!isProd(e)) return `<button class="job nota" data-id="${e.id}" data-line="${line}" data-day="${day}" ${drag}><div class="c">${esc(e.text)}</div>${e.note?`<div class="q"><i>${esc(e.note)}</i></div>`:""}</button>`;
+  if (!isProd(e)) return `<button class="job nota" data-id="${esc(e.id)}" data-line="${line}" data-day="${day}" ${drag}><div class="c">${esc(e.text)}</div>${e.note?`<div class="q"><i>${esc(e.note)}</i></div>`:""}</button>`;
   const r = rowOf(e);
   if (r){
     const fam = famNum(r[2]);
     const head = `${fam ? `<span class="fn" title="Cod. ${fam}">${fam}</span>` : ""}<b class="gdia">${r[3] ? "Ø" + esc(fmtNum(r[3])) : "–"}</b>${r[4] ? ` <b class="gpn">${esc(clsPrefix(r[2]) + fmtNum(r[4]))}</b>` : ""}${r[6] && r[6] !== "BANDA ROSSA" ? ` <span class="${isCorr(r) ? "gdia" : "gcol"}">${esc(r[6].toLowerCase())}</span>` : ""}`;
-    return `<button class="job jv ${e.cont?"cont":""} ${e.art?"":"miss"}" style="--stripe:${stripeFor(r)}" data-id="${e.id}" data-line="${line}" data-day="${day}" ${drag}>
+    return `<button class="job jv ${e.cont?"cont":""} ${e.art?"":"miss"}" style="--stripe:${stripeFor(r)}" data-id="${esc(e.id)}" data-line="${line}" data-day="${day}" ${drag}>
     <div class="gh">${e.cont ? `<span class="jvc">↳</span>` : ""}${head}</div>
     ${!isCorr(r) ? `<div class="gfam${isFluid(e, r) ? " gfluid" : ""}">${esc(famLabelE(e, r))}</div>` : ""}
     <div class="jvi"><span class="gfmt">${esc(formatLenCell(r) || "formato non indicato")}</span> ${codeHTML(e, "gcode")}${e.cont ? ` <span class="gidem">idem</span>` : ""}</div>
@@ -1072,7 +1201,7 @@ function jobHTML(e, rep, line, day, ro){
     ${(e.qty||e.note) ? `<div class="gq">${esc(e.qty)}${e.qty&&e.note?" ":""}${e.note?`<i>${esc(e.note)}</i>`:""}</div>` : ""}
   </button>`;
   }
-  return `<button class="job ${e.cont?"cont":""} ${r && e.art?"":"miss"}" style="--stripe:${stripeFor(r)}" data-id="${e.id}" data-line="${line}" data-day="${day}" ${drag}>
+  return `<button class="job ${e.cont?"cont":""} ${r && e.art?"":"miss"}" style="--stripe:${stripeFor(r)}" data-id="${esc(e.id)}" data-line="${line}" data-day="${day}" ${drag}>
     <div class="c">${r && famNum(r[2]) ? `<span class="fn" title="Cod. ${famNum(r[2])}">${famNum(r[2])}</span>` : ""}${esc(e.art || "Codice da inserire")}</div>
     <div class="s">${r ? esc(cellSpec(r)) : "Codice non in anagrafica"}</div>
     ${e.custom ? `<div class="tag fc">fuori catalogo</div>` : r && r[7] === 1 ? `<div class="tag">aggiunto in anagrafica</div>` : ""}${e.cont ? `<div class="tag">continua</div>` : ""}
@@ -1082,7 +1211,7 @@ function jobHTML(e, rep, line, day, ro){
 function blHTML(b, ro){
   const r = rowOf(b.entry);
   const uc = {Alta:"var(--u-alta)",Media:"var(--u-media)",Bassa:"var(--u-bassa)"}[b.urg];
-  return `<button class="job blitem ${isProd(b.entry)?"":"nota"}" style="--stripe:${stripeFor(r)};--uc:${uc}" data-bl="${b.id}" ${ro?"":`draggable="true" data-drag="bl"`}>
+  return `<button class="job blitem ${isProd(b.entry)?"":"nota"}" style="--stripe:${stripeFor(r)};--uc:${uc}" data-bl="${esc(b.id)}" ${ro?"":`draggable="true" data-drag="bl"`}>
     <div class="u">Urgenza ${b.urg.toLowerCase()}</div>
     <div class="c">${esc(b.entry.art || b.entry.text || "Codice da inserire")}</div>
     ${r ? `<div class="s">${esc(famLabel(r[2])+" "+spec(r))}</div>` : ""}
@@ -1159,6 +1288,7 @@ function bindMobile(){
 MOBQ.addEventListener("change", () => { UI.mday = null; render(); });
 function render(){
   const app = document.getElementById("app");
+  if (FB) subWeek(UI.wk);
   UI.mobile = MOBQ.matches;
   if (UI.mobile && UI.editMode){ UI.editMode = false; UI.viewAuto = true; UI.qe = null; }
   if (UI.viewAuto){ const lr0 = lastRev(S.weeks[UI.wk]); UI.view = UI.editMode ? "draft" : lr0 ? lr0.n : "draft"; }
@@ -1168,7 +1298,8 @@ function render(){
   const todayIdx = keyOf(monday(TODAY)) === UI.wk ? (TODAY.getDay()+6)%7 : -1;
   const isDirty = dirty(UI.wk);
   let status;
-  if (!w || (!lr && !hasAny(w.draft))) status = `<span class="hint">Nessun programma per questa settimana</span>`;
+  if (FB && !LOADING && !WKSEEN.has(UI.wk)) status = `<span class="hint">Caricamento della settimana…</span>`;
+  else if (!w || (!lr && !hasAny(w.draft))) status = `<span class="hint">Nessun programma per questa settimana</span>`;
   else if (!lr) status = `<span class="status dirty">Mai pubblicata</span>`;
   else if (isDirty) status = `<span class="status dirty">Modifiche non pubblicate, ultima Rev. ${lr.n} del ${stamp(lr.at)}</span>`;
   else status = `<span class="status ok">Pubblicata Rev. ${lr.n} del ${stamp(lr.at)}</span>`;
@@ -1259,7 +1390,8 @@ function bind(){
   const gn = $("gnote");
   if (gn){
     gn.onfocus = () => { UI.fc = null; UI.qe = null; snap(); };
-    gn.oninput = () => { const w = weekObj(UI.wk, true); w.draft.note = gn.value; Store.save(); };
+    gn.oninput = () => { const w = weekObj(UI.wk, true); w.draft.note = gn.value; Store.saveSoon(); };
+    gn.onblur = () => { if (Store._note) Store.save(); };
   }
   if ($("sblocca")) $("sblocca").onclick = () => { UI.unlocked[UI.wk] = true; render(); };
   $("pubblica").onclick = openPublish;
@@ -1392,13 +1524,13 @@ function groupDay(list){
 }
 function groupCardHTML(g, line, day){
   const ids = g.items.map(e => e.id).join(",");
-  if (g.act) return `<button class="job gc nota actg" data-line="${line}" data-day="${day}" data-ids="${ids}">${g.items.map(e => `<div class="ga"><span class="fn">${esc(e.act)}</span>${esc(ACTSHORT[e.act] || "")}</div>`).join("")}</button>`;
-  if (g.nota) return `<button class="job gc nota" data-line="${line}" data-day="${day}" data-ids="${ids}"><div class="gn">${esc(g.items[0].text)}</div>${g.items[0].note ? `<i>${esc(g.items[0].note)}</i>` : ""}</button>`;
+  if (g.act) return `<button class="job gc nota actg" data-line="${line}" data-day="${day}" data-ids="${esc(ids)}">${g.items.map(e => `<div class="ga"><span class="fn">${esc(e.act)}</span>${esc(ACTSHORT[e.act] || "")}</div>`).join("")}</button>`;
+  if (g.nota) return `<button class="job gc nota" data-line="${line}" data-day="${day}" data-ids="${esc(ids)}"><div class="gn">${esc(g.items[0].text)}</div>${g.items[0].note ? `<i>${esc(g.items[0].note)}</i>` : ""}</button>`;
   const r = g.r, fam = r && famNum(r[2]);
   const head = r ? `${fam ? `<span class="fn">${fam}</span>` : ""}<b class="gdia">${r[3] ? "Ø" + esc(fmtNum(r[3])) : "–"}</b>${r[4] ? ` <b class="gpn">${esc(clsPrefix(r[2]) + fmtNum(r[4]))}</b>` : ""}${r[6] && !["BANDA ROSSA"].includes(r[6]) ? ` <span class="${isCorr(r) ? "gdia" : "gcol"}">${esc(r[6].toLowerCase())}</span>` : ""}` : `<b class="gdia">?</b>`;
   const items = g.items.map(e => { const ri = rowOf(e);
     return `<li><span class="gfmt">${ri ? esc(formatLenCell(ri) || "formato non indicato") : ""}</span> ${codeHTML(e, "gcode")}${e.cont ? ` <span class="gidem">idem</span>` : ""}${e.custom ? ` <span class="tag fc">fuori catalogo</span>` : ""}${e.lav ? `<div class="glav">${esc(e.lav)}</div>` : ""}${e.qty || e.note ? `<div class="gq">${esc(e.qty)}${e.qty && e.note ? " " : ""}${e.note ? `<i>${esc(e.note)}</i>` : ""}</div>` : ""}</li>`; }).join("");
-  return `<button class="job gc" style="--stripe:${stripeFor(r)}" data-line="${line}" data-day="${day}" data-ids="${ids}"><div class="gh">${head}</div>${r && !isCorr(r) ? `<div class="gfam${g.fluid ? " gfluid" : ""}">${esc(g.fluid ? "Fluid" : famLabel(r[2]))}</div>` : ""}<ul>${items}</ul></button>`;
+  return `<button class="job gc" style="--stripe:${stripeFor(r)}" data-line="${line}" data-day="${day}" data-ids="${esc(ids)}"><div class="gh">${head}</div>${r && !isCorr(r) ? `<div class="gfam${g.fluid ? " gfluid" : ""}">${esc(g.fluid ? "Fluid" : famLabel(r[2]))}</div>` : ""}<ul>${items}</ul></button>`;
 }
 const gKey = g => (!g || g.nota || g.act || !g.r) ? null : [g.r[2], g.r[3], g.r[4], g.r[6], g.fluid ? "F" : "", g.lk || ""].join("|");
 function layoutRuns(days, ND){
@@ -1438,7 +1570,7 @@ function mergedCardHTML(r, line){
   } else {
     body = `<div class="gdays">${r.parts.map(p => `<div class="gdaycol"><div class="gdayh">${GG[p.day]} ${addDays(fromKey(UI.wk), p.day).getDate()}</div><ul>${p.g.items.map(li).join("")}</ul></div>`).join("")}</div>`;
   }
-  return `<button class="job gc gmerged" style="--stripe:${stripeFor(ri)}" data-line="${line}" data-day="${r.start}" data-ids="${ids}"><div class="gh">${head}</div>${ri && !isCorr(ri) ? `<div class="gfam${g0.fluid ? " gfluid" : ""}">${esc(g0.fluid ? "Fluid" : famLabel(ri[2]))}</div>` : ""}${body}</button>`;
+  return `<button class="job gc gmerged" style="--stripe:${stripeFor(ri)}" data-line="${line}" data-day="${r.start}" data-ids="${esc(ids)}"><div class="gh">${head}</div>${ri && !isCorr(ri) ? `<div class="gfam${g0.fluid ? " gfluid" : ""}">${esc(g0.fluid ? "Fluid" : famLabel(ri[2]))}</div>` : ""}${body}</button>`;
 }
 function printMerged(r){
   if (r.parts.length === 1) return printGroup(r.parts[0].g);
@@ -1492,6 +1624,12 @@ function progIndex(){
     const d = w.draft || {};
     REPS.forEach(r => Object.values(d[r] || {}).forEach(days => (days || []).forEach(list => (list || []).forEach(e => see(e, wk)))));
     Object.values(d.spans || {}).forEach(lines => Object.values(lines || {}).forEach(list => (list || []).forEach(e => see(e, wk))));
+  });
+  /* settimane non scaricate: si usa l'indice salvato sul database */
+  Object.entries(S.idx || {}).forEach(([wk, s]) => {
+    if ((S.weeks || {})[wk] || WKSEEN.has(wk)) return;
+    const j = P(s); if (!j) return;
+    (j.o || []).forEach(id => add("o:" + id, wk)); (j.t || []).forEach(id => add("t:" + id, wk));
   });
   PI_S = S; PI_V = PI_VER; PI_MAP = m; return m;
 }
@@ -1557,16 +1695,7 @@ function showNM(){
 function openOrders(rep, line){
   const sameO = OD.rep === rep && OD.line === line;
   OD = { rep, line, focusId: sameO ? OD.focusId : null, scroll: sameO ? OD.scroll : null }; drawOrders();
-  if (!dlg.open){
-    let back = document.getElementById("nmback");
-    if (!back){ back = document.createElement("div"); back.id = "nmback"; document.body.appendChild(back); back.onmousedown = () => dlg.querySelectorAll("details.tmach[open]").forEach(d => d.open = false); }
-    back.className = "on"; dlg.classList.add("nm"); dlg.show();
-    if (!openOrders.hooked){
-      openOrders.hooked = true;
-      dlg.addEventListener("close", () => { if (dlg.open) return; dlg.classList.remove("nm","dragout"); const bk = document.getElementById("nmback"); if (bk) bk.className = ""; });
-      document.addEventListener("keydown", e => { if (e.key === "Escape" && dlg.open && dlg.classList.contains("nm")){ e.preventDefault(); const d = dlg.querySelector("details.tmach[open]"); if (d) d.open = false; else dlg.close(); } });
-    }
-  }
+  showNM();
 }
 /* colore di fondo dell'ordine in base alla famiglia del prodotto */
 const ORD_TINT = { azzurro:["1","2","3","4","5","7","8","15","20"], verde:["9","10"], arancio:["12","13","14","17","19","21"] };
@@ -1594,14 +1723,14 @@ function orderCardHTML(o, ro){
       <div class="orwm">${rw.lav ? `<span class="glav">${esc(rw.lav)}</span>` : ""}${rw.qty ? `<b>${esc(rw.qty)}</b>` : ""}${wk.length ? `<span class="tpv">sett. ${wk.map(w => isoWeek(fromKey(w))).join(", ")}</span>` : ""}</div>
     </div>`; }).join("");
   const wks = weekOptions();
-  return `<div class="ocard t-${orderTint(o)}" data-ocard="${o.id}" ${ro ? "" : `draggable="true"`} style="--uc:${{Alta:"var(--u-alta)",Media:"var(--u-media)",Bassa:"var(--u-bassa)"}[o.urg || "Media"]}">
+  return `<div class="ocard t-${orderTint(o)}" data-ocard="${esc(o.id)}" ${ro ? "" : `draggable="true"`} style="--uc:${{Alta:"var(--u-alta)",Media:"var(--u-media)",Bassa:"var(--u-bassa)"}[o.urg || "Media"]}">
     <div class="otop">${ro ? "" : `<span class="ograb" title="Trascina per cambiare l’ordine, oppure portalo su un giorno della settimana">⠿</span>`}<span class="tud" title="Urgenza ${esc((o.urg || "Media").toLowerCase())}"></span><span class="onum">Ord. ${esc(o.num || "–")}${o.date ? ` del ${esc(fmtDate(o.date))}` : ""}</span></div>
     <div class="oclient">${esc(o.client || "Cliente non indicato")}</div>
     <div class="ofam">${esc(famTxt)}</div>
     ${plannedWks.length ? `<div class="tplan oplan">In previsione: settimana ${plannedWks.join(", ")}</div>` : ""}
     ${o.note ? `<p class="onote">${esc(o.note)}</p>` : ""}
     <div class="orows">${rowsH}</div>
-    ${ro ? "" : `<div class="oacts"><select class="tsel" data-oplan="${o.id}"><option value="">Programma in…</option>${wks.map(([k,tt]) => `<option value="${k}">${tt}</option>`).join("")}</select><button class="ghost tbtn" data-oedit="${o.id}">Modifica</button><button class="ghost tbtn" data-odel="${o.id}">Togli</button></div>`}
+    ${ro ? "" : `<div class="oacts"><select class="tsel" data-oplan="${esc(o.id)}"><option value="">Programma in…</option>${wks.map(([k,tt]) => `<option value="${k}">${tt}</option>`).join("")}</select><button class="ghost tbtn" data-oedit="${esc(o.id)}">Modifica</button><button class="ghost tbtn" data-odel="${esc(o.id)}">Togli</button></div>`}
   </div>`;
 }
 
@@ -1653,16 +1782,18 @@ function bindOrderDrag(){
     };
   });
   /* uscendo dalla finestra con l'ordine, la finestra si toglie di mezzo e si vede la settimana */
-  if (!bindOrderDrag.doc){
-    bindOrderDrag.doc = true;
-    document.addEventListener("dragover", e => {
-      if (!ODRAG || ODRAG.out || !dlg.open) return;
-      const r = dlg.getBoundingClientRect();
-      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom){
-        ODRAG.out = true; dlg.classList.add("dragout"); const bk = document.getElementById("nmback"); if (bk) bk.className = "on out";
-      }
-    }, true);
-  }
+  hookDragOut();
+}
+function hookDragOut(){
+  if (hookDragOut.done) return;
+  hookDragOut.done = true;
+  document.addEventListener("dragover", e => {
+    if (!ODRAG || ODRAG.out || !dlg.open) return;
+    const r = dlg.getBoundingClientRect();
+    if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom){
+      ODRAG.out = true; dlg.classList.add("dragout"); const bk = document.getElementById("nmback"); if (bk) bk.className = "on out";
+    }
+  }, true);
 }
 function reorderOrder(id, targetId, after){
   const list = ordersOfLine(OD.rep, OD.line), from = list.findIndex(o => o.id === id); if (from < 0) return;
@@ -1698,6 +1829,7 @@ function orderEntry(o, rw){
 }
 function scheduleOrder(id, wk){
   const o = S.orders.find(x => x.id === id); if (!o || LOADING) return;
+  if (!weekReady(wk)){ subWeek(wk); return toast("Settimana ancora in caricamento: riprova tra un attimo"); }
   const todo = o.rows.filter(rw => !rowWeeks(rw).includes(wk));
   if (!todo.length) return toast("Questo ordine è già in quella settimana");
   snap();
@@ -1911,6 +2043,7 @@ const canPlan = () => !LOADING && !(isPast() && !UI.unlocked[UI.wk] && !UI.editM
 function scheduleTodo(id, rep, line, wk){
   const b = S.backlog.find(x => x.id === id); if (!b) return;
   if (LOADING) return;
+  if (!weekReady(wk)){ subWeek(wk); return toast("Settimana ancora in caricamento: riprova tra un attimo"); }
   snap();
   const e = clone(b.entry); e.id = uid(); e.cont = false;
   e.qty = b.mag ? "Magazzino" : b.qmin || "";
@@ -2037,7 +2170,7 @@ function openTodo(rep, line){
 function machineBox(b){
   const names = b.machines.filter(validM).map(lineShort);
   if (readOnly()) return `<div class="tmro">${names.length ? esc(names.join(", ")) : "Nessuna macchina"}</div>`;
-  return `<details class="tmach"><summary>${names.length ? esc(names.join(", ")) : `<span class="warn">Scegli le macchine</span>`}</summary><div class="tmlist">${REPS.map(rp => `<div class="tmg"><b>${REPARTI[rp].nome}</b>${REPARTI[rp].linee.filter(l => !l.act).map(l => `<label><input type="checkbox" data-mck="${b.id}" value="${rp}|${l.id}" ${onMachine(b, rp, l.id) ? "checked" : ""}> ${esc(l.num || l.nome)} <small>${esc(l.num ? l.nome : l.mac)}</small></label>`).join("")}</div>`).join("")}<button class="primary tmok" type="button">Fatto</button></div></details>`;
+  return `<details class="tmach"><summary>${names.length ? esc(names.join(", ")) : `<span class="warn">Scegli le macchine</span>`}</summary><div class="tmlist">${REPS.map(rp => `<div class="tmg"><b>${REPARTI[rp].nome}</b>${REPARTI[rp].linee.filter(l => !l.act).map(l => `<label><input type="checkbox" data-mck="${esc(b.id)}" value="${rp}|${l.id}" ${onMachine(b, rp, l.id) ? "checked" : ""}> ${esc(l.num || l.nome)} <small>${esc(l.num ? l.nome : l.mac)}</small></label>`).join("")}</div>`).join("")}<button class="primary tmok" type="button">Fatto</button></div></details>`;
 }
 function weekOptions(){
   const out = [], m0 = monday(TODAY);
@@ -2052,7 +2185,7 @@ function planSelect(b){
   const wks = weekOptions();
   const opts = ms.length === 1 ? wks.map(([k,t]) => `<option value="${ms[0][0]}|${ms[0][1]}|${k}">${t}</option>`).join("")
     : ms.map(m => `<optgroup label="${esc(REPARTI[m[0]].nome + " " + lineName(m))}">${wks.map(([k,t]) => `<option value="${m[0]}|${m[1]}|${k}">${t}</option>`).join("")}</optgroup>`).join("");
-  return `<select class="tsel" data-plan="${b.id}" aria-label="Programma"><option value="">Programma in…</option>${opts}</select>`;
+  return `<select class="tsel" data-plan="${esc(b.id)}" aria-label="Programma"><option value="">Programma in…</option>${opts}</select>`;
 }
 function todoRowHTML(b){
   const r = rowOf(b.entry), fam = r && famNum(r[2]);
@@ -2060,7 +2193,7 @@ function todoRowHTML(b){
     : `<b>${esc(b.entry.text || "")}</b>`;
   const pl = plannedOf(b), lastP = pl[pl.length - 1];
   const ro = readOnly();
-  return `<div class="trow" data-trow="${b.id}" ${ro ? "" : `draggable="true"`} style="--uc:${{Alta:"var(--u-alta)",Media:"var(--u-media)",Bassa:"var(--u-bassa)"}[b.urg]}">
+  return `<div class="trow" data-trow="${esc(b.id)}" ${ro ? "" : `draggable="true"`} style="--uc:${{Alta:"var(--u-alta)",Media:"var(--u-media)",Bassa:"var(--u-bassa)"}[b.urg]}">
     <span class="tud" title="Urgenza ${b.urg.toLowerCase()}"></span>
     <div class="tmain"><div>${ro ? "" : `<span class="tgrab" title="Trascina su un giorno della settimana">⠿</span>`}${head}</div>
       <div class="tsub">${r ? esc(famLabelE(b.entry, r)) : ""}${b.entry.custom ? ` <span class="tag fc">fuori catalogo</span>` : ""}</div>
@@ -2069,7 +2202,7 @@ function todoRowHTML(b){
       </div>
     ${machineBox(b)}
     ${planSelect(b)}
-    <div class="tacts">${readOnly() ? "" : `<button class="ghost tbtn" data-tedit="${b.id}">Modifica</button><button class="ghost tbtn" data-tdel="${b.id}">Togli</button>`}</div>
+    <div class="tacts">${readOnly() ? "" : `<button class="ghost tbtn" data-tedit="${esc(b.id)}">Modifica</button><button class="ghost tbtn" data-tdel="${esc(b.id)}">Togli</button>`}</div>
     ${(() => { const cw = keyOf(monday(TODAY)), cur0 = pl.filter(p => p.wk === cw), cur = cur0.concat(curWeekByCode(b).filter(c => !cur0.some(p => p.rep === c.rep && p.line === c.line))), oth = pl.filter(p => p.wk !== cw), ln = p => `${esc(plannedLabel(p))}${p.at ? ` <span>(messo il ${shortDate(p.at)})</span>` : ""}`;
       return (cur.length ? `<div class="tplan tprod">${cur.map(p => `In produzione questa settimana: ${ln(p)}`).join("<br>")}</div>` : "")
         + (oth.length ? `<div class="tplan">${oth.map(p => `In previsione: ${ln(p)}`).join("<br>")}</div>` : ""); })()}
@@ -2171,16 +2304,7 @@ function bindTodoDrag(){
       if (dlg.open) drawTodo();
     };
   });
-  if (!bindOrderDrag.doc){
-    bindOrderDrag.doc = true;
-    document.addEventListener("dragover", e => {
-      if (!ODRAG || ODRAG.out || !dlg.open) return;
-      const r = dlg.getBoundingClientRect();
-      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom){
-        ODRAG.out = true; dlg.classList.add("dragout"); const bk = document.getElementById("nmback"); if (bk) bk.className = "on out";
-      }
-    }, true);
-  }
+  hookDragOut();
 }
 /* posizione dell'elenco: resta dov'era quando la finestra si ridisegna */
 function keepScroll(isMine, focusSel){
@@ -2292,7 +2416,7 @@ function openActPicker(line, day, startText){
   dlg.innerHTML = `<div class="dh"><div><h2>${esc(L.nome)} – ${GIORNI[day]} ${addDays(fromKey(UI.wk), day).getDate()}</h2><p>Clicca i codici da inserire, clicca di nuovo per toglierli. Dalla tabella puoi anche selezionare la cella e premere i tasti da 1 a 7.</p></div><button class="icon" id="x" aria-label="Chiudi">×</button></div>
     <div class="db"><div class="actpick">${Object.entries(ACT).map(([k,v]) => `<button class="chip" data-act="${k}" aria-pressed="${cur.has(k)}"><span class="fn">${k}</span>${esc(v)}</button>`).join("")}</div>
       <label class="field" style="margin-top:14px"><span>Oppure testo libero (manutenzione, idem…)</span><div style="display:flex;gap:8px"><input id="acttxt" value="${esc(startText || "")}" placeholder="es. Manutenzione"><button class="ghost" id="actadd">Aggiungi</button></div></label>
-      ${texts.length ? `<div class="acttexts">${texts.map(e => `<div><span>${esc(e.text)}</span><button class="ghost" data-deltxt="${e.id}">Togli</button></div>`).join("")}</div>` : ""}</div>
+      ${texts.length ? `<div class="acttexts">${texts.map(e => `<div><span>${esc(e.text)}</span><button class="ghost" data-deltxt="${esc(e.id)}">Togli</button></div>`).join("")}</div>` : ""}</div>
     <div class="df"><span class="grow"></span><button class="primary" id="actok">Fatto</button></div>`;
   const $ = id => dlg.querySelector("#" + id);
   const addTxt = () => { const v = $("acttxt").value.trim(); if (!v) return; snap(); cellList(line, day).push({ id:uid(), art:null, text:v, qty:"", note:"", cont:false }); UI.fc = { line, day }; Store.save(); render(); openActPicker(line, day); };
@@ -2559,16 +2683,16 @@ function fullText(data, wk){
   return lines.join("\n");
 }
 function mailFor(rev){
-  const m = fromKey(UI.wk), wn = isoWeek(m), C = S.contacts;
+  const m = fromKey(UI.wk), wn = isoWeek(m), C = S.contacts, link = (C.link || DEFAULT_LINK).trim();
   const subject = rev.n === 1 ? `Programma di produzione WK ${wn}` : `Aggiornamento programma di produzione settimana ${wn} – Rev. ${rev.n}`;
   let body = rev.n === 1 ? "" : `Buongiorno,\n\n`;
   if (rev.n === 1){
-    body = `Buon pomeriggio,\n\nin allegato programma di produzione della settimana ${wn}.\n` + (rev.msg ? `\n${rev.msg}\n` : "") + `\nSaluti`;
+    body = `Buon pomeriggio,\n\nin allegato programma di produzione della settimana ${wn}.\n` + (rev.msg ? `\n${rev.msg}\n` : "") + `\nIl programma, sempre aggiornato, si consulta qui: ${link}\n` + `\nSaluti`;
   }
   else body += `il programma di produzione della settimana ${wn} (${rangeLabel(m)}) è stato aggiornato alla Rev. ${rev.n}.\n\nModifiche:\n${rev.changes.map(c => `- ${c.where}: ${c.verb} ${c.what}`).join("\n")}\n`;
   if (rev.n !== 1){
     if (rev.msg) body += `\n${rev.msg}\n`;
-    if (C.link) body += `\nProgramma sempre aggiornato: ${C.link}\n`;
+    body += `\nIl programma, sempre aggiornato, si consulta qui: ${link}\n`;
     body += `\nSaluti\n${C.firma}`;
   }
   const cc = C.cc.split(/[\n,;]+/).map(x => x.trim()).filter(Boolean);
@@ -2669,12 +2793,32 @@ function drawCatEdit(){
     snap();
     const r = getArt(c.code), cu = { fam:r[2], dia:r[3], cls:r[4], len:r[5], col:r[6] };
     Object.values(S.weeks).forEach(w => [w.draft, ...w.revs.map(v => v.data)].forEach(d => REPS.map(k => d[k]).filter(Boolean).forEach(rep => Object.values(rep).forEach(days => days.forEach(list => list.forEach(e => { if (e.art === c.code && !e.custom) e.custom = { ...cu }; }))))));
+    resetRevCache();
+    markDeletedInOldWeeks(c.code, cu).catch(() => toast("Attenzione: le settimane vecchie non sono state aggiornate, serve il collegamento al database"));
     S.backlog.forEach(b => { if (b.entry.art === c.code && !b.entry.custom) b.entry.custom = { ...cu }; });
     S.extra = S.extra.filter(x => x[0] !== c.code); if (S.edits) delete S.edits[c.code];
     syncCatalog(); Store.save(); render(); toast(c.code + " eliminato"); CAT.edit = null; drawCatalog();
   };
 }
 dlg.addEventListener("close", () => { if (!dlg.open) dlg.classList.remove("wide"); });
+/* articolo tolto dall'anagrafica: nelle settimane non scaricate resta leggibile come fuori catalogo */
+async function markDeletedInOldWeeks(code, cu){
+  if (!FB || !FB.get) throw new Error("offline");
+  const snap = await FB.get(FB.ref(FB.db, `${DBROOT}/weeks`)), all = snap.val() || {}, upd = {};
+  const fix = list => { let ch = false; (list || []).forEach(e => { if (e && e.art === code && !e.custom){ e.custom = { ...cu }; ch = true; } }); return ch; };
+  Object.entries(all).forEach(([wk, w]) => {
+    if (!w || WKSEEN.has(wk)) return;
+    Object.entries(w.draft || {}).forEach(([rep, lines]) => { if (!REPARTI[rep]) return;
+      Object.entries(lines || {}).forEach(([line, days]) => Object.entries(days || {}).forEach(([d, str]) => {
+        const l = P(str); if (Array.isArray(l) && fix(l)) upd[`weeks/${wk}/draft/${rep}/${line}/${d}`] = JSON.stringify(l); })); });
+    Object.entries(w.revs || {}).forEach(([n, str]) => {
+      const r = P(str); if (!r || !r.data) return;
+      let ch = false; REPS.forEach(rep => Object.values(r.data[rep] || {}).forEach(days => (days || []).forEach(l => { if (fix(l)) ch = true; })));
+      if (ch) upd[`weeks/${wk}/revs/${n}`] = JSON.stringify(r);
+    });
+  });
+  if (Object.keys(upd).length) await FB.update(FB.ref(FB.db, DBROOT), upd);
+}
 
 /* ---------- contatti ---------- */
 function openContacts(){
@@ -2683,7 +2827,7 @@ function openContacts(){
   <div class="db">
     <label class="field"><span>Destinatario principale</span><input id="cto" value="${esc(C.to)}"></label>
     <label class="field"><span>In copia, uno per riga</span><textarea id="ccc" style="min-height:190px">${esc(C.cc)}</textarea></label>
-    <label class="field"><span>Link al programma da inserire nella mail, facoltativo</span><input id="clink" value="${esc(C.link)}" placeholder="https://…"></label>
+    <label class="field"><span>Link al programma da inserire nella mail (se vuoto: ${esc(DEFAULT_LINK)})</span><input id="clink" value="${esc(C.link)}" placeholder="${esc(DEFAULT_LINK)}"></label>
     <label class="field"><span>Firma</span><input id="cfirma" value="${esc(C.firma)}"></label>
     <label class="field"><span>Cartella di base per i PDF ({anno} viene sostituito con l’anno; mese e settimana si aggiungono da soli)</span><input id="cpdf" value="${esc(C.pdfBase || DEFAULT_PDF_BASE)}"></label>
   </div>
@@ -2692,8 +2836,11 @@ function openContacts(){
   ${roC ? "" : `<div class="df"><span class="grow"></span><button class="primary" id="save">Salva contatti</button></div>`}`;
   if (roC) dlg.querySelectorAll(".db input, .db textarea").forEach(el => { if (el.type !== "file") el.readOnly = true; });
   const $ = id => dlg.querySelector("#"+id);
-  $("bkdown").onclick = () => {
-    const blob = new Blob([JSON.stringify({ app:"riccini-programma-produzione", v:1, at:new Date().toISOString(), data:S })], { type:"application/json" });
+  $("bkdown").onclick = async () => {
+    let data;
+    try { data = unflatten(await fullTree(), true); }
+    catch(e){ return toast("Per la copia completa serve il collegamento al database"); }
+    const blob = new Blob([JSON.stringify({ app:"riccini-programma-produzione", v:1, at:new Date().toISOString(), data })], { type:"application/json" });
     const a = document.createElement("a"), d = new Date();
     a.href = URL.createObjectURL(blob); a.download = `programma-produzione-backup-${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}.json`;
     document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -2706,8 +2853,16 @@ function openContacts(){
       let j; try { j = JSON.parse(rd.result); } catch(_){ return toast("File non valido"); }
       if (!j || j.app !== "riccini-programma-produzione" || !j.data || !j.data.weeks) return toast("Questo file non è una copia del programma");
       if (!confirm(`Ripristinare la copia del ${stamp(j.at)}? Tutto il programma attuale, per tutti gli utenti, verrà sostituito.`)) return;
-      snap(); S = j.data; ["backlog","extra"].forEach(k => { if (!S[k]) S[k] = []; }); ["edits","machines","meta"].forEach(k => { if (!S[k]) S[k] = {}; });
-      S.backlog.forEach(normItem); syncCatalog(); Store.save(); render(); dlg.close(); toast("Copia ripristinata");
+      const D = j.data; ["backlog","extra","orders"].forEach(k => { if (!D[k]) D[k] = []; }); ["edits","machines","meta"].forEach(k => { if (!D[k]) D[k] = {}; });
+      D.idx = {}; D.backlog.forEach(normItem);
+      if (!FB || !FB.set || LOADING) return toast("Per ripristinare serve il collegamento al database");
+      /* il database viene sostituito per intero, poi la pagina si ricarica */
+      D.meta = { ...D.meta, idxV:1 };
+      dlg.close(); SAVING++; setSync(); toast("Ripristino in corso…");
+      FB.set(FB.ref(FB.db, DBROOT), treeFromFlat(flatten(D)))
+        .then(() => { toast("Copia ripristinata"); setTimeout(() => location.reload(), 800); })
+        .catch(e => toast("Ripristino non riuscito: " + ((e && e.message) || "errore")))
+        .finally(() => { SAVING--; setSync(); });
     };
     rd.readAsText(file);
   };
@@ -3122,12 +3277,30 @@ function afterRender(){
   });
 }
 
+/* ---------- data di oggi: si aggiorna anche se la pagina resta aperta giorni ---------- */
+function checkToday(){
+  const now = new Date();
+  if (keyOf(now) === keyOf(TODAY)) return;
+  const oldWk = keyOf(monday(TODAY)); TODAY = now;
+  const newWk = keyOf(monday(TODAY));
+  if (newWk !== oldWk){
+    if (FB) subWindow();
+    /* chi stava guardando la settimana in corso passa alla nuova, se non sta scrivendo */
+    if (UI.wk === oldWk && !UI.qe && !dlg.open){ UI.wk = newWk; UI.viewAuto = true; }
+  }
+  UI.mday = null;
+  if (!UI.qe) render();
+}
+setInterval(checkToday, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) checkToday(); });
+window.addEventListener("focus", checkToday);
+
 render();
 </script>
 <script type="module">
 /* Per usare un altro progetto Firebase basta sostituire questo blocco di configurazione. */
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getDatabase, ref, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, onValue, update, get, set } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 const firebaseConfig = {
   apiKey: "AIzaSyBE6lf9Q5LnW1xzhATmaakRUbAIzLIdFKg",
   authDomain: "riccini-programma-produzione.firebaseapp.com",
@@ -3138,7 +3311,7 @@ const firebaseConfig = {
   appId: "1:495850308665:web:8f1ff1e6555a93c2a0b9e8"
 };
 const app = initializeApp(firebaseConfig, "programma-produzione");
-window.__fbInit({ db:getDatabase(app), ref, onValue, update });
+window.__fbInit({ db:getDatabase(app), ref, onValue, update, get, set });
 </script>
 </body>
 </html>
