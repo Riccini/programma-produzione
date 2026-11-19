@@ -484,6 +484,12 @@ dialog.wide{width:min(1120px,calc(100vw - 24px))}
 #print .tlp .cd{font:700 1.05em var(--cond)}
 #print .tlp .tu-alta{font-weight:700}
 #print .tlp .fn{min-width:1.6em;height:1.5em;font-size:.95em;border:1px solid #000;border-radius:3px;display:inline-grid;place-items:center;padding:0 2px}
+#print .tlp .spn-p{font:700 1.5em var(--cond);text-align:center}
+#print .tlp .spp-p{font:700 1.3em var(--cond);text-align:center}
+#print .tlp .spc-p{text-align:center}
+#print .spl-p{display:flex;justify-content:space-between;gap:10px;border-top:1px dotted #777;padding:1px 0}
+#print .spl-p:first-child{border-top:0}
+#print .spl-p b{white-space:nowrap}
 #print .pparth{font:700 13pt var(--cond);margin:8px 0 2px;padding:2px 6px;border-left:4px solid #000}
 #print{display:none}
 @media (max-width:720px){
@@ -3354,7 +3360,7 @@ function renderSp(){
     <div class="sub">
       <span class="hint">${list.length ? `${list.length} ${list.length === 1 ? "ordine" : "ordini"} da lavorare${senza ? `, ${senza} con la copia cartacea ancora da consegnare` : ", tutte le copie cartacee consegnate"}` : "Nessun ordine da lavorare"}</span>
       <span class="spacer"></span>
-      <div class="actions">${UI.editMode && UI.view === "draft" ? `<button class="ghost" id="esci">Esci dalla modifica</button>` : ""}${ro ? "" : `<button class="primary" id="spnew">+ Nuovo ordine</button>`}</div>
+      <div class="actions"><button class="ghost" id="spprint" ${list.length ? "" : "disabled"}>Stampa</button>${UI.editMode && UI.view === "draft" ? `<button class="ghost" id="esci">Esci dalla modifica</button>` : ""}${ro ? "" : `<button class="primary" id="spnew">+ Nuovo ordine</button>`}</div>
     </div>
   </header>
   ${!UI.mobile && UI.view !== "draft" ? `<div class="banner"><span>Sola visualizzazione. Per aggiungere ordini o cambiarne la priorità entra in modifica.</span><button class="primary" id="tobozza">Modifica il programma</button></div>` : ""}
@@ -3363,6 +3369,27 @@ function renderSp(){
     ${list.length ? `<ol class="splist" id="splist">${list.map((o, i) => spCardHTML(o, i, list.length, ro, list)).join("")}</ol>` : `<p class="hint">Nessun ordine di pezzi speciali.${ro ? "" : " Aggiungilo con <b>+ Nuovo ordine</b>."}</p>`}
   </main>`;
   bindSp(); setSync();
+}
+function printSp(){
+  const list = spList(), now = new Date(), senza = list.filter(o => !o.carta).length;
+  const row = (o, i) => `<tr>
+      <td class="spn-p">${i + 1}</td>
+      <td class="spp-p">${spPrio(o)}</td>
+      <td><b>${esc(o.client || "")}</b></td>
+      <td><b>${esc(o.num || "–")}</b>${o.date ? `<br>${esc(fmtDate(o.date))}` : ""}</td>
+      <td>${o.rows.length ? o.rows.map(r => `<div class="spl-p"><span>${esc(r.desc)}</span>${r.qty ? `<b>${esc(r.qty)}</b>` : ""}</div>`).join("") : ""}</td>
+      <td>${esc(o.note || "")}</td>
+      <td class="spc-p">${o.carta ? "Consegnata" : "<b>Da consegnare</b>"}</td></tr>`;
+  document.getElementById("print").innerHTML = `<section class="tlist">
+    <div class="ph"><div class="rb"><img src="${LOGO_SRC}" alt="Riccini"></div><h1>${esc(SP_NOME)}</h1><div class="meta">Stampato il ${pad(now.getDate())}/${pad(now.getMonth()+1)}/${now.getFullYear()} alle ${pad(now.getHours())}:${pad(now.getMinutes())}<br><b>${list.length} ${list.length === 1 ? "ordine" : "ordini"}</b></div></div>
+    <p class="lg">In ordine di priorità, da 10 (la più urgente) a 0: il numero 1 è il primo da fare.${senza ? ` Copia cartacea ancora da consegnare per ${senza} ${senza === 1 ? "ordine" : "ordini"}.` : ""}</p>
+    <table class="tlp" style="font-size:10pt"><thead><tr><th style="width:4%">N.</th><th style="width:7%">Priorità</th><th style="width:15%">Cliente</th><th style="width:11%">Ordine</th><th>Lavorazioni da fare</th><th style="width:17%">Note</th><th style="width:10%">Copia cartacea</th></tr></thead>
+    <tbody>${list.map(row).join("")}</tbody></table>
+    ${list.length ? "" : `<p>Nessun ordine da lavorare.</p>`}
+    <div class="pf"><div class="mod">${PROG_MOD}</div></div>
+  </section>`;
+  const old = document.title; document.title = `${SP_NOME} - ${pad(now.getDate())}-${pad(now.getMonth()+1)}-${now.getFullYear()}`;
+  setTimeout(() => { window.print(); document.title = old; }, 60);
 }
 function spRenumber(list){ list.forEach((o, i) => o.pos = i); }
 function spMove(id, d){
@@ -3403,6 +3430,7 @@ function bindSp(){
   if ($("tobozza")) $("tobozza").onclick = () => { UI.viewAuto = false; UI.editMode = true; UI.view = "draft"; render(); };
   if ($("esci")) $("esci").onclick = () => { UI.editMode = false; UI.viewAuto = true; UI.qe = null; render(); };
   if ($("spnew")) $("spnew").onclick = () => openSpEditor(null);
+  if ($("spprint")) $("spprint").onclick = printSp;
   const L = $("splist"); if (!L) return;
   L.onclick = e => { const b = e.target.closest("button"); if (!b) return; const d = b.dataset;
     if (d.spup) spMove(d.spup, -1); else if (d.spdown) spMove(d.spdown, 1); else if (d.spedit) openSpEditor(d.spedit); else if (d.spdel) spDel(d.spdel); };
